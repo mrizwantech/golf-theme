@@ -10,6 +10,11 @@ wp-content/wp-cache-config.php
 wp-content/plugins/
 wp-content/uploads/
 
+# Ignore all plugins except the custom one
+wp-content/plugins/*
+!wp-content/plugins/tee-time-nexus-bookings/
+!wp-content/plugins/tee-time-nexus-bookings/**
+
 # Ignore all themes except the custom one
 wp-content/themes/*
 !wp-content/themes/golf-simulator-theme/

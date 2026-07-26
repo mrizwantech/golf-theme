@@ -1,6 +1,7 @@
 <?php
 /*
 Template Name: User Account
+Description: User account dashboard for managing bookings - presentation layer only
 */
 get_header();
 
@@ -14,45 +15,12 @@ if (!is_user_logged_in()) {
 $current_user = wp_get_current_user();
 $user_email = $current_user->user_email;
 
-// Handle edit/cancel/add actions
-$action = isset($_GET['action']) ? sanitize_text_field($_GET['action']) : '';
-$booking_id = isset($_GET['booking_id']) ? intval($_GET['booking_id']) : 0;
-
-// Handle update booking
-if (isset($_POST['ttn_update_user_booking']) && check_admin_referer('ttn_update_user_booking_nonce')) {
-    $booking_id_update = intval($_POST['booking_id']);
-    $new_date = sanitize_text_field($_POST['date']);
-    $new_time = sanitize_text_field($_POST['time']);
-    $new_duration = intval($_POST['duration']);
-
-    // Verify this booking belongs to the current user
-    $booking_email = get_post_meta($booking_id_update, 'ttn_booking_email', true);
-    if ($booking_email === $user_email) {
-        update_post_meta($booking_id_update, 'ttn_booking_date', $new_date);
-        update_post_meta($booking_id_update, 'ttn_booking_time', $new_time);
-        update_post_meta($booking_id_update, 'ttn_booking_duration', $new_duration);
-        
-        echo '<div class="notice notice-success is-dismissible"><p>Booking updated successfully!</p></div>';
-        $action = '';
-    }
-}
-
-// Handle cancel booking
-if ($action === 'cancel' && $booking_id && check_admin_referer('ttn_booking_action')) {
-    $booking_email = get_post_meta($booking_id, 'ttn_booking_email', true);
-    if ($booking_email === $user_email) {
-        wp_delete_post($booking_id);
-        echo '<div class="notice notice-success is-dismissible"><p>Booking cancelled successfully!</p></div>';
-        $action = '';
-    }
-}
-
-// Get user's bookings
+// Get user's bookings (CRUD: Read)
 $user_bookings = ttn_get_user_bookings($user_email);
 
+// Get time slots and bays (presentation data)
 $time_slots = apply_filters('ttn_get_time_slots', array());
 if (empty($time_slots)) {
-    // Fallback if filter not set
     $time_slots = array(
         array('label' => '11:00 AM', 'start' => '11:00'),
         array('label' => '12:00 PM', 'start' => '12:00'),
@@ -75,13 +43,16 @@ $bays = array(
     'Rory McIlroy Bay',
 );
 
-// Sort by date descending
+// Sort bookings by date descending (presentation logic)
 usort($user_bookings, function($a, $b) {
     return strtotime($b['date']) - strtotime($a['date']);
 });
 
-// Check if editing
+// Determine which booking to edit (presentation logic)
+$action = isset($_GET['action']) ? sanitize_text_field($_GET['action']) : '';
+$booking_id = isset($_GET['booking_id']) ? intval($_GET['booking_id']) : 0;
 $booking_to_edit = null;
+
 if ($action === 'edit' && $booking_id) {
     foreach ($user_bookings as $booking) {
         if ($booking['ID'] === $booking_id) {
@@ -91,6 +62,11 @@ if ($action === 'edit' && $booking_id) {
     }
 }
 
+// Get result message from transient if available
+$message = get_transient('ttn_user_booking_message_' . $user_email);
+if ($message) {
+    delete_transient('ttn_user_booking_message_' . $user_email);
+}
 ?>
 <main class="container">
     <article class="entry-content">
@@ -100,12 +76,18 @@ if ($action === 'edit' && $booking_id) {
             <p><a href="<?php echo esc_url(wp_logout_url(home_url())); ?>" class="btn btn-secondary">Logout</a></p>
         </div>
 
+        <?php if ($message && !empty($message['message'])) : ?>
+            <div class="notice notice-<?php echo esc_attr($message['success'] ? 'success' : 'error'); ?> is-dismissible">
+                <p><?php echo esc_html($message['message']); ?></p>
+            </div>
+        <?php endif; ?>
+
         <?php if ($booking_to_edit) : ?>
         <div style="background: #f8f9fa; padding: 20px; margin-bottom: 20px; border-radius: 5px;">
             <h2>Edit Booking</h2>
-            <form method="post">
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                <input type="hidden" name="action" value="ttn_update_user_booking">
                 <?php wp_nonce_field('ttn_update_user_booking_nonce'); ?>
-                <input type="hidden" name="ttn_update_user_booking" value="1">
                 <input type="hidden" name="booking_id" value="<?php echo esc_attr($booking_to_edit['ID']); ?>">
                 
                 <table class="form-table">
@@ -181,8 +163,9 @@ if ($action === 'edit' && $booking_id) {
                             $is_past = $booking_date < $today;
                             $price = $booking['duration'] * 50;
                             
-                            $edit_url = wp_nonce_url(get_permalink() . '?action=edit&booking_id=' . $booking['ID'], 'ttn_booking_action', 'nonce');
-                            $cancel_url = wp_nonce_url(get_permalink() . '?action=cancel&booking_id=' . $booking['ID'], 'ttn_booking_action', 'nonce');
+                            // Links to edit and cancel using action handlers
+                            $edit_url = get_permalink() . '?action=edit&booking_id=' . $booking['ID'];
+                            $cancel_url = wp_nonce_url(add_query_arg(array('ttn_cancel_booking_id' => $booking['ID']), admin_url('admin-post.php?action=ttn_cancel_user_booking')), 'ttn_cancel_booking_nonce');
                             ?>
                             <tr class="<?php echo $is_past ? 'booking-past' : 'booking-upcoming'; ?>">
                                 <td><?php echo esc_html($booking['bay']); ?></td>
@@ -210,12 +193,6 @@ if ($action === 'edit' && $booking_id) {
         </div>
     </article>
 </main>
-
-<style>
-.account-header {
-    background: #f8f9fa;
-    padding: 20px;
-    border-radius: 5px;
     margin-bottom: 30px;
 }
 
