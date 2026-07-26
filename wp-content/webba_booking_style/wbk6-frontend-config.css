@@ -1,0 +1,77 @@
+/* specific colors */
+:root {
+	--wbk-bg-accent: #14B8A9;
+	--wbk-font: "Ubuntu", sans-serif;
+	--wbk-border-radius: 8px;
+	--wbk-shadow: 0px 0px 16px 0px #3f3f4629;
+	--wbk-button-border-radius: 8px;
+	--wbk-bg-button-primary: #14B8A9;
+	--wbk-bg-button-primary-hover: #11978C;
+	--wbk-color-button-primary: #ffffff;
+	--wbk-color-button-primary-hover: #F3FBFB;
+	--wbk-bg-button-secondary: #edeff2;
+	--wbk-bg-button-secondary-hover: #14B8A9;
+	--wbk-color-button-secondary: #ffffff;
+	--wbk-color-button-secondary-hover: #F3FBFB;
+	--wbk-bg-button-inactive: #edeff3;
+	--wbk-color-button-inactive: #ffffff;
+	--wbk-bg-button-selected: #14B8A9;
+	--wbk-bg-button-selected-hover: #11978C;
+	--wbk-color-button-selected: #ffffff;
+	--wbk-color-button-selected-hover: #F3FBFB;
+	--wbk-bg-button-selected-selected: #ffffff;
+	--wbk-color-button-selected-selected: #22292f;
+	--wbk-bg-sidebar: #F9FAFB;
+	--wbk-color-sidebar: #22292F;
+	--wbk-color-border-selected: #14B8A9;
+}
+
+/* color shades */
+:root {
+	--wbk-primary-50: #F3FBFB;
+	--wbk-primary-text-50: #22292F;
+	--wbk-primary-100: #E8F8F6;
+	--wbk-primary-text-100: #22292F;
+	--wbk-primary-200: #D0F1EE;
+	--wbk-primary-text-200: #22292F;
+	--wbk-primary-300: #B9EAE5;
+	--wbk-primary-text-300: #22292F;
+	--wbk-primary-400: #A1E3DD;
+	--wbk-primary-text-400: #22292F;
+	--wbk-primary-500: #14B8A9;
+	--wbk-primary-text-500: #FFFFFF;
+	--wbk-primary-600: #11978C;
+	--wbk-primary-text-600: #FFFFFF;
+	--wbk-primary-700: #0C6A62;
+	--wbk-primary-text-700: #FFFFFF;
+	--wbk-primary-800: #073C37;
+	--wbk-primary-text-800: #FFFFFF;
+	--wbk-primary-900: #020E0D;
+	--wbk-primary-text-900: #FFFFFF;
+	--wbk-primary-950: #000000;
+	--wbk-primary-text-950: #FFFFFF;
+	--wbk-primary-filter-500: none;
+	--wbk-secondary-50: #FFFFFF;
+	--wbk-secondary-text-50: #22292F;
+	--wbk-secondary-100: #FEFFFF;
+	--wbk-secondary-text-100: #22292F;
+	--wbk-secondary-200: #FEFEFE;
+	--wbk-secondary-text-200: #22292F;
+	--wbk-secondary-300: #FDFEFE;
+	--wbk-secondary-text-300: #22292F;
+	--wbk-secondary-400: #FDFDFD;
+	--wbk-secondary-text-400: #22292F;
+	--wbk-secondary-500: #F9FAFB;
+	--wbk-secondary-text-500: #22292F;
+	--wbk-secondary-600: #E3E8ED;
+	--wbk-secondary-text-600: #22292F;
+	--wbk-secondary-700: #C5CFD8;
+	--wbk-secondary-text-700: #22292F;
+	--wbk-secondary-800: #A6B5C4;
+	--wbk-secondary-text-800: #22292F;
+	--wbk-secondary-900: #889CAF;
+	--wbk-secondary-text-900: #22292F;
+	--wbk-secondary-950: #728AA1;
+	--wbk-secondary-text-950: #FFFFFF;
+	--wbk-secondary-filter-500: hue-rotate(35.521472392638deg) saturate(25%) brightness(200%);
+}
