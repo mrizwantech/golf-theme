@@ -9,10 +9,19 @@
 <?php wp_body_open(); ?>
 <header class="site-header">
     <div class="container header-inner">
-        <a class="brand" href="<?php echo esc_url(home_url('/')); ?>">
-            <span class="brand-mark">TN</span>
-            <span>Tee Time Nexus</span>
-        </a>
+        <?php $site_logo = get_theme_mod('golf_simulator_site_logo'); ?>
+        <?php if (!empty($site_logo)) : ?>
+            <a class="brand" href="<?php echo esc_url(home_url('/')); ?>">
+                <img class="custom-logo" src="<?php echo esc_url($site_logo); ?>" alt="<?php echo esc_attr(get_bloginfo('name')); ?>">
+            </a>
+        <?php elseif (has_custom_logo()) : ?>
+            <?php the_custom_logo(); ?>
+        <?php else : ?>
+            <a class="brand" href="<?php echo esc_url(home_url('/')); ?>">
+                <span class="brand-mark">TN</span>
+                <span>Tee Time Nexus</span>
+            </a>
+        <?php endif; ?>
         <?php golf_simulator_theme_menu(); ?>
         <div class="header-user-menu">
             <?php if (is_user_logged_in()) : ?>

@@ -14,10 +14,32 @@ add_action('after_setup_theme', 'golf_simulator_theme_setup');
 
 function golf_simulator_theme_enqueue_assets() {
     wp_enqueue_style('golf-simulator-theme-style', get_stylesheet_uri(), array(), wp_get_theme()->get('Version'));
+    wp_enqueue_script(
+        'golf-simulator-theme-slider',
+        get_template_directory_uri() . '/assets/js/slider.js',
+        array(),
+        wp_get_theme()->get('Version'),
+        true
+    );
 }
 add_action('wp_enqueue_scripts', 'golf_simulator_theme_enqueue_assets');
 
 function golf_simulator_theme_customize_register($wp_customize) {
+    $wp_customize->add_section('golf_simulator_branding_section', array(
+        'title' => __('Theme Branding', 'golf-simulator-theme'),
+        'priority' => 20,
+    ));
+
+    $wp_customize->add_setting('golf_simulator_site_logo', array(
+        'default' => '',
+        'sanitize_callback' => 'esc_url_raw',
+    ));
+    $wp_customize->add_control(new WP_Customize_Image_Control($wp_customize, 'golf_simulator_site_logo', array(
+        'label' => __('Header Logo', 'golf-simulator-theme'),
+        'section' => 'golf_simulator_branding_section',
+        'settings' => 'golf_simulator_site_logo',
+    )));
+
     $wp_customize->add_section('golf_simulator_slider_section', array(
         'title' => __('Homepage Slider', 'golf-simulator-theme'),
         'priority' => 30,

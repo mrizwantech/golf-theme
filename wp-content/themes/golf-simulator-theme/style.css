@@ -1,7 +1,7 @@
 /*
 Theme Name: Golf Simulator Theme
 Theme URI: https://example.com/golf-simulator-theme
-Author: Copilot
+Author: Muhammad Rizwan
 Author URI: https://example.com
 Description: A clean modern WordPress theme for a golf simulator business.
 Version: 1.0.0
@@ -131,6 +131,17 @@ img { max-width: 100%; height: auto; }
     gap: 12px;
     font-weight: 700;
     letter-spacing: 0.4px;
+    color: var(--text);
+    text-decoration: none;
+}
+.custom-logo-link {
+    display: inline-flex;
+    align-items: center;
+}
+.custom-logo {
+    max-height: 48px;
+    width: auto;
+    display: block;
 }
 .header-user-menu {
     display: flex;
