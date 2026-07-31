@@ -37,6 +37,41 @@ function ttn_normalize_string($string) {
 }
 
 /**
+ * Normalize bay names to canonical values so old bookings remain compatible.
+ */
+function ttn_normalize_bay_name($bay_name) {
+    $normalized = ttn_normalize_string($bay_name);
+
+    $mapping = array(
+        'tigerwoodsbay' => 'bay1',
+        'jacknicklausbay' => 'bay2',
+        'philmickelsonbay' => 'bay3',
+        'rorymcilroybay' => 'bay4',
+        'bay1' => 'bay1',
+        'bay2' => 'bay2',
+        'bay3' => 'bay3',
+        'bay4' => 'bay4',
+    );
+
+    return isset($mapping[$normalized]) ? $mapping[$normalized] : $normalized;
+}
+
+/**
+ * Convert any bay name format to the current display label.
+ */
+function ttn_get_bay_display_name($bay_name) {
+    $canonical = ttn_normalize_bay_name($bay_name);
+    $labels = array(
+        'bay1' => 'Bay 1',
+        'bay2' => 'Bay 2',
+        'bay3' => 'Bay 3',
+        'bay4' => 'Bay 4',
+    );
+
+    return isset($labels[$canonical]) ? $labels[$canonical] : (string) $bay_name;
+}
+
+/**
  * Get all bookings for a specific email address
  */
 function ttn_get_user_bookings($email) {
@@ -53,7 +88,7 @@ function ttn_get_user_bookings($email) {
         if ($booking_email === $email) {
             $user_bookings[] = array(
                 'ID' => $post_id,
-                'bay' => get_post_meta($post_id, 'ttn_booking_bay', true),
+                'bay' => ttn_get_bay_display_name(get_post_meta($post_id, 'ttn_booking_bay', true)),
                 'date' => get_post_meta($post_id, 'ttn_booking_date', true),
                 'time' => get_post_meta($post_id, 'ttn_booking_time', true),
                 'duration' => intval(get_post_meta($post_id, 'ttn_booking_duration', true) ?: 1),
@@ -126,10 +161,10 @@ function ttn_booking_get_time_slots() {
 
 function ttn_booking_get_bays() {
     return array(
-        'tiger-woods' => 'Tiger Woods Bay',
-        'jack-nicklaus' => 'Jack Nicklaus Bay',
-        'phil-mickelson' => 'Phil Mickelson Bay',
-        'rory-mcilroy' => 'Rory McIlroy Bay',
+        'bay-1' => 'Bay 1',
+        'bay-2' => 'Bay 2',
+        'bay-3' => 'Bay 3',
+        'bay-4' => 'Bay 4',
     );
 }
 
@@ -145,7 +180,7 @@ function ttn_booking_get_booking_records() {
 
     foreach ($posts as $post_id) {
         $records[] = array(
-            'bay' => get_post_meta($post_id, 'ttn_booking_bay', true),
+            'bay' => ttn_get_bay_display_name(get_post_meta($post_id, 'ttn_booking_bay', true)),
             'date' => get_post_meta($post_id, 'ttn_booking_date', true),
             'time' => get_post_meta($post_id, 'ttn_booking_time', true),
         );
@@ -159,11 +194,11 @@ function ttn_booking_get_booked_slots($bay, $date) {
     $booked = array();
     
     // Normalize the incoming bay name
-    $bay_normalized = ttn_normalize_string($bay);
+    $bay_normalized = ttn_normalize_bay_name($bay);
 
     foreach ($bookings as $booking) {
         // Normalize stored bay name for comparison
-        $stored_bay = ttn_normalize_string($booking['bay']);
+        $stored_bay = ttn_normalize_bay_name($booking['bay']);
         if ($stored_bay === $bay_normalized && $booking['date'] === $date) {
             $booked[] = $booking['time'];
         }
@@ -211,7 +246,7 @@ function ttn_booking_check_availability_for_duration($bay, $date, $start_time_la
     }
 
     // Normalize bay name for comparison
-    $bay_normalized = ttn_normalize_string($bay);
+    $bay_normalized = ttn_normalize_bay_name($bay);
 
     // Check if ANY of the consecutive slots are booked
     for ($i = 0; $i < $duration; $i++) {
@@ -220,7 +255,7 @@ function ttn_booking_check_availability_for_duration($bay, $date, $start_time_la
         // Check if this slot is booked
         foreach ($bookings as $booking) {
             if ($booking['date'] === $date) {
-                $booking_bay = ttn_normalize_string($booking['bay']);
+                $booking_bay = ttn_normalize_bay_name($booking['bay']);
                 
                 if ($booking_bay === $bay_normalized && $booking['time'] === $slot['label']) {
                     return false; // Slot is booked
@@ -243,7 +278,7 @@ function ttn_booking_get_calendar_html($bay = '') {
     $booked_dates = array();
 
     foreach ($bookings as $booking) {
-        if ($bay && $booking['bay'] !== $bay) {
+        if ($bay && ttn_normalize_bay_name($booking['bay']) !== ttn_normalize_bay_name($bay)) {
             continue;
         }
 
@@ -796,8 +831,8 @@ function ttn_booking_checkout() {
         
         // Check if booked
         foreach ($bookings as $booking) {
-            $booking_bay = ttn_normalize_string($booking['bay']);
-            $check_bay = ttn_normalize_string($bay);
+            $booking_bay = ttn_normalize_bay_name($booking['bay']);
+            $check_bay = ttn_normalize_bay_name($bay);
             
             if ($booking_bay === $check_bay && $booking['date'] === $date && $booking['time'] === $check_slot['label']) {
                 wp_die(__('One or more of the requested time slots are no longer available.', 'tee-time-nexus-bookings'));
@@ -994,7 +1029,7 @@ function ttn_render_booking_dashboard() {
             'name' => get_post_meta($edit_id, 'ttn_booking_name', true),
             'email' => get_post_meta($edit_id, 'ttn_booking_email', true),
             'phone' => get_post_meta($edit_id, 'ttn_booking_phone', true),
-            'bay' => get_post_meta($edit_id, 'ttn_booking_bay', true),
+            'bay' => ttn_get_bay_display_name(get_post_meta($edit_id, 'ttn_booking_bay', true)),
             'date' => get_post_meta($edit_id, 'ttn_booking_date', true),
             'time' => get_post_meta($edit_id, 'ttn_booking_time', true),
         );
@@ -1141,7 +1176,7 @@ function ttn_render_booking_dashboard() {
 function ttn_send_booking_reminder($booking_id) {
     $name = get_post_meta($booking_id, 'ttn_booking_name', true);
     $email = get_post_meta($booking_id, 'ttn_booking_email', true);
-    $bay = get_post_meta($booking_id, 'ttn_booking_bay', true);
+    $bay = ttn_get_bay_display_name(get_post_meta($booking_id, 'ttn_booking_bay', true));
     $date = get_post_meta($booking_id, 'ttn_booking_date', true);
     $time = get_post_meta($booking_id, 'ttn_booking_time', true);
 
