@@ -967,12 +967,14 @@ function ttn_render_booking_dashboard() {
         $email = sanitize_email($_POST['email']);
         $phone = sanitize_text_field($_POST['phone']);
 
-        update_post_meta($booking_id, 'ttn_booking_bay', $bay);
-        update_post_meta($booking_id, 'ttn_booking_date', $date);
-        update_post_meta($booking_id, 'ttn_booking_time', $time);
-        update_post_meta($booking_id, 'ttn_booking_name', $name);
-        update_post_meta($booking_id, 'ttn_booking_email', $email);
-        update_post_meta($booking_id, 'ttn_booking_phone', $phone);
+        ttn_save_booking_metadata($booking_id, array(
+            'bay' => $bay,
+            'date' => $date,
+            'time' => $time,
+            'name' => $name,
+            'email' => $email,
+            'phone' => $phone,
+        ));
 
         wp_update_post(array(
             'ID' => $booking_id,
@@ -1161,29 +1163,6 @@ function ttn_send_booking_reminder($booking_id) {
     wp_mail($email, $subject, $message);
 }
 
-function ttn_send_sms_confirmation($phone, $name, $bay, $date, $time) {
-    // TODO: Integrate with Twilio for SMS
-    // This is a placeholder for SMS integration
-    // Uncomment and configure when Twilio account is available
-    /*
-    require_once __DIR__ . '/vendor/autoload.php';
-    $sid = get_option('ttn_twilio_sid');
-    $token = get_option('ttn_twilio_token');
-    $from = get_option('ttn_twilio_phone');
-    
-    $twilio = new \Twilio\Rest\Client($sid, $token);
-    $message = sprintf(
-        "Hi %s, your booking at %s is confirmed for %s at %s. See you soon!",
-        $name,
-        $bay,
-        $date,
-        $time
-    );
-    
-    $twilio->messages->create($phone, array('from' => $from, 'body' => $message));
-    */
-}
-
 // ===== USER-FACING CRUD HANDLERS (BUSINESS LOGIC) =====
 
 /**
@@ -1221,9 +1200,11 @@ function ttn_crud_update_user_booking($booking_id, $user_email, $booking_data) {
     }
 
     // Update the booking
-    update_post_meta($booking_id, 'ttn_booking_date', $booking_data['date']);
-    update_post_meta($booking_id, 'ttn_booking_time', $booking_data['time']);
-    update_post_meta($booking_id, 'ttn_booking_duration', intval($booking_data['duration']));
+    ttn_save_booking_metadata($booking_id, array(
+        'date' => $booking_data['date'],
+        'time' => $booking_data['time'],
+        'duration' => intval($booking_data['duration']),
+    ));
 
     return array('success' => true, 'message' => 'Booking updated successfully.');
 }
@@ -1262,7 +1243,7 @@ function ttn_handle_user_update_booking() {
         wp_die('You must be logged in to update a booking.');
     }
 
-    if (!isset($_POST['ttn_update_user_booking']) || !check_admin_referer('ttn_update_user_booking_nonce')) {
+    if (!isset($_POST['booking_id']) || !check_admin_referer('ttn_update_user_booking_nonce')) {
         wp_die('Security check failed.');
     }
 

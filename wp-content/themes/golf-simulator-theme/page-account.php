@@ -36,13 +36,6 @@ if (empty($time_slots)) {
     );
 }
 
-$bays = array(
-    'Tiger Woods Bay',
-    'Jack Nicklaus Bay',
-    'Phil Mickelson Bay',
-    'Rory McIlroy Bay',
-);
-
 // Sort bookings by date descending (presentation logic)
 usort($user_bookings, function($a, $b) {
     return strtotime($b['date']) - strtotime($a['date']);
@@ -193,6 +186,8 @@ if ($message) {
         </div>
     </article>
 </main>
+<style>
+.account-header {
     margin-bottom: 30px;
 }
 
