@@ -10,18 +10,16 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-function ttn_booking_mail_headers() {
-    $from_email = sanitize_email(get_option('admin_email'));
+function ttn_booking_send_mail($to, $subject, $message) {
+    $sender_name = static function () {
+        return 'Tee Time Nexus';
+    };
 
-    if (!$from_email) {
-        return array('Content-Type: text/plain; charset=UTF-8');
-    }
+    add_filter('wp_mail_from_name', $sender_name);
+    $sent = wp_mail($to, $subject, $message);
+    remove_filter('wp_mail_from_name', $sender_name);
 
-    return array(
-        'Content-Type: text/plain; charset=UTF-8',
-        'From: Tee Time Nexus <' . $from_email . '>',
-        'Reply-To: ' . $from_email,
-    );
+    return $sent;
 }
 
 function ttn_booking_register_cpt() {
@@ -854,8 +852,8 @@ function ttn_booking_submit() {
             $notes
         );
 
-        wp_mail($admin_email, $subject, $message, ttn_booking_mail_headers());
-        wp_mail($email, 'Your Tee Time Nexus booking request', sprintf(
+        ttn_booking_send_mail($admin_email, $subject, $message);
+        ttn_booking_send_mail($email, 'Your Tee Time Nexus booking request', sprintf(
             "Hi %s,\n\nThanks for your request. We received your reservation for %s on %s from %s for %d player%s.\n\nPlease complete checkout to secure your booking.",
             $name,
             $bay,
@@ -863,7 +861,7 @@ function ttn_booking_submit() {
             $time,
             $players,
             $players === 1 ? '' : 's'
-        ), ttn_booking_mail_headers());
+        ));
     }
 
     $checkout_url = ttn_booking_add_to_cart_and_redirect($bay, array(
@@ -1030,7 +1028,7 @@ function ttn_booking_checkout() {
             $duration,
             $total_price
         );
-        wp_mail($email, $subject, $message, ttn_booking_mail_headers());
+        ttn_booking_send_mail($email, $subject, $message);
 
         // Send admin notification
         $admin_email = get_option('admin_email');
@@ -1058,7 +1056,7 @@ function ttn_booking_checkout() {
             $players,
             $total_price
         );
-        wp_mail($admin_email, $admin_subject, $admin_message, ttn_booking_mail_headers());
+        ttn_booking_send_mail($admin_email, $admin_subject, $admin_message);
     }
 
     wp_safe_redirect(home_url('/book-a-bay/?booking=confirmed&id=' . $parent_booking_id));
