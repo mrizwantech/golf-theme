@@ -141,6 +141,8 @@ if ($message) {
                             <th>Time</th>
                             <th>Duration</th>
                             <th>Price</th>
+                            <th>Status</th>
+                            <th>Reference</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -149,8 +151,10 @@ if ($message) {
                             <?php
                             $end_time = '';
                             $start_index = array_search($booking['time'], array_column($time_slots, 'label'));
-                            if ($start_index !== false && $start_index + $booking['duration'] - 1 < count($time_slots)) {
-                                $end_time = $time_slots[$start_index + $booking['duration'] - 1]['label'];
+                            if ($start_index !== false) {
+                                $start_minutes = ((int) substr($time_slots[$start_index]['start'], 0, 2) * 60) + (int) substr($time_slots[$start_index]['start'], 3, 2);
+                                $end_minutes = $start_minutes + ((int) $booking['duration'] * 60);
+                                $end_time = date('g:i A', mktime((int) floor($end_minutes / 60) % 24, $end_minutes % 60));
                             }
                             $booking_date = strtotime($booking['date']);
                             $today = strtotime(current_time('Y-m-d'));
@@ -167,6 +171,8 @@ if ($message) {
                                 <td><?php echo esc_html($booking['time']); ?> <?php if ($end_time) echo ' - ' . esc_html($end_time); ?></td>
                                 <td><?php echo esc_html($booking['duration']); ?>h</td>
                                 <td>$<?php echo number_format($price, 2); ?></td>
+                                <td><?php echo esc_html($booking['payment_status'] ?: 'Submitted'); ?></td>
+                                <td><?php echo esc_html($booking['booking_reference']); ?></td>
                                 <td>
                                     <?php if (!$is_past) : ?>
                                         <a href="<?php echo esc_url($edit_url); ?>" class="btn btn-small">Edit</a>
