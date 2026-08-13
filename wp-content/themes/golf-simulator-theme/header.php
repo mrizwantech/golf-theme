@@ -17,9 +17,12 @@
         <?php elseif (has_custom_logo()) : ?>
             <?php the_custom_logo(); ?>
         <?php else : ?>
-            <a class="brand" href="<?php echo esc_url(home_url('/')); ?>">
-                <span class="brand-mark">TN</span>
-                <span>Tee Time Nexus</span>
+            <a class="brand brand-fallback" href="<?php echo esc_url(home_url('/')); ?>" aria-label="Tee Time Nexus">
+                <span class="brand-fallback-mark">TT</span>
+                <span class="brand-fallback-text">
+                    <span class="brand-fallback-top">Tee Time</span>
+                    <span class="brand-fallback-bottom">Nexus</span>
+                </span>
             </a>
         <?php endif; ?>
         <?php golf_simulator_theme_menu(); ?>

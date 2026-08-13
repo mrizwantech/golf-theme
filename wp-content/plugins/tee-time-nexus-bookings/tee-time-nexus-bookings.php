@@ -92,6 +92,7 @@ function ttn_get_user_bookings($email) {
                 'date' => get_post_meta($post_id, 'ttn_booking_date', true),
                 'time' => get_post_meta($post_id, 'ttn_booking_time', true),
                 'duration' => intval(get_post_meta($post_id, 'ttn_booking_duration', true) ?: 1),
+                'players' => intval(get_post_meta($post_id, 'ttn_booking_players', true) ?: 1),
                 'phone' => get_post_meta($post_id, 'ttn_booking_phone', true),
                 'name' => get_post_meta($post_id, 'ttn_booking_name', true),
             );
@@ -128,6 +129,9 @@ function ttn_save_booking_metadata($post_id, $booking_data) {
     if (isset($booking_data['duration'])) {
         update_post_meta($post_id, 'ttn_booking_duration', $booking_data['duration']);
     }
+    if (isset($booking_data['players'])) {
+        update_post_meta($post_id, 'ttn_booking_players', $booking_data['players']);
+    }
     if (isset($booking_data['total_price'])) {
         update_post_meta($post_id, 'ttn_booking_total_price', $booking_data['total_price']);
     }
@@ -144,6 +148,7 @@ function ttn_save_booking_metadata($post_id, $booking_data) {
 
 function ttn_booking_get_time_slots() {
     $slots = array(
+        array('label' => '10:00 AM', 'start' => '10:00'),
         array('label' => '11:00 AM', 'start' => '11:00'),
         array('label' => '12:00 PM', 'start' => '12:00'),
         array('label' => '1:00 PM', 'start' => '13:00'),
@@ -468,6 +473,18 @@ function ttn_booking_shortcode() {
         </div>
 
         <div class="booking-section">
+            <h3>Players</h3>
+            <div class="player-selector" id="ttn-player-selector">
+                <?php for ($p = 1; $p <= 4; $p++) : ?>
+                    <label class="player-pill">
+                        <input type="radio" name="players" value="<?php echo esc_attr($p); ?>" data-players="<?php echo esc_attr($p); ?>" <?php checked($p, 1); ?> />
+                        <span><?php echo esc_html($p); ?></span>
+                    </label>
+                <?php endfor; ?>
+            </div>
+        </div>
+
+        <div class="booking-section">
             <h3>Select Start Time</h3>
             <div class="time-slots" id="ttn-time-slots">
                 <?php foreach ($time_slots as $slot) : ?>
@@ -502,6 +519,7 @@ function ttn_booking_shortcode() {
         let selectedDate = null;
         let selectedTime = null;
         let selectedDuration = 1;
+        let selectedPlayers = 1;
 
         function updateTimeSlots() {
             const bay = document.querySelector('input[name="bay"]:checked');
@@ -561,24 +579,42 @@ function ttn_booking_shortcode() {
             updateSummary();
         }
 
+        function updateSelectedTimeRangeUI() {
+            if (!selectedTime) {
+                document.querySelectorAll('.time-slot-pill').forEach(btn => btn.classList.remove('selected'));
+                return;
+            }
+
+            const duration = parseInt(document.querySelector('input[name="duration"]:checked')?.value || 1, 10);
+            const startIndex = timeSlots.findIndex(slot => slot.label === selectedTime);
+            if (startIndex === -1) {
+                return;
+            }
+
+            document.querySelectorAll('.time-slot-pill').forEach((btn, index) => {
+                const shouldSelect = index >= startIndex && index < startIndex + duration;
+                btn.classList.toggle('selected', shouldSelect);
+            });
+        }
+
         function updateSummary() {
             const bayInput = document.querySelector('input[name="bay"]:checked');
             const bay = bayInput ? bayInput.value : 'No bay selected';
             const date = dateField.value;
             const duration = document.querySelector('input[name="duration"]:checked')?.value || 1;
+            const players = document.querySelector('input[name="players"]:checked')?.value || 1;
             const time = selectedTime || 'No time selected';
             const totalPrice = parseInt(duration) * PRICE_PER_HOUR;
 
             if (selectedTime) {
-                // Find the end time
                 const startIndex = timeSlots.findIndex(s => s.label === selectedTime);
                 const endTime = startIndex + parseInt(duration) - 1 < timeSlots.length 
                     ? timeSlots[startIndex + parseInt(duration) - 1].label 
                     : selectedTime;
                 
-                summary.innerHTML = `<strong>${bay}</strong><br/>${date} • ${time} - ${endTime} (${duration}h)<br/><strong>Total: $${totalPrice}</strong>`;
+                summary.innerHTML = `<strong>${bay}</strong><br/>${date} • ${time} - ${endTime} (${duration}h) • ${players}<br/><strong>Total: $${totalPrice}</strong>`;
             } else {
-                summary.innerHTML = '<strong>' + bay + '</strong><br/>' + date + ' • No time selected<br/><strong>$' + totalPrice + '</strong>';
+                summary.innerHTML = '<strong>' + bay + '</strong><br/>' + date + ' • No time selected • ' + players + '<br/><strong>$' + totalPrice + '</strong>';
             }
 
             if (selectedBay && selectedDate && selectedTime) {
@@ -588,25 +624,82 @@ function ttn_booking_shortcode() {
             }
         }
 
-        document.querySelectorAll('input[name="bay"]').forEach(radio => {
-            radio.addEventListener('change', (e) => {
-                // Remove selected class from all bay pills
-                document.querySelectorAll('.bay-pill').forEach(pill => {
-                    pill.classList.remove('selected');
-                });
-                // Add selected class to the checked radio's parent label
-                if (e.target.checked) {
-                    e.target.closest('.bay-pill').classList.add('selected');
+        function updateDurationSelectionUI() {
+            document.querySelectorAll('.duration-pill').forEach(pill => {
+                pill.classList.remove('selected');
+            });
+
+            const checkedDuration = document.querySelector('input[name="duration"]:checked');
+            if (checkedDuration) {
+                const selectedPill = checkedDuration.closest('.duration-pill');
+                if (selectedPill) {
+                    selectedPill.classList.add('selected');
                 }
+            }
+        }
+
+        function updateBaySelectionUI() {
+            document.querySelectorAll('.bay-pill').forEach(pill => {
+                pill.classList.remove('selected');
+            });
+
+            const checkedBay = document.querySelector('input[name="bay"]:checked');
+            if (checkedBay) {
+                const selectedPill = checkedBay.closest('.bay-pill');
+                if (selectedPill) {
+                    selectedPill.classList.add('selected');
+                }
+            }
+        }
+
+        function updatePlayersSelectionUI() {
+            document.querySelectorAll('.player-pill').forEach(pill => {
+                pill.classList.remove('selected');
+            });
+
+            const checkedPlayers = document.querySelector('input[name="players"]:checked');
+            if (checkedPlayers) {
+                const selectedPill = checkedPlayers.closest('.player-pill');
+                if (selectedPill) {
+                    selectedPill.classList.add('selected');
+                }
+            }
+        }
+
+        document.querySelectorAll('input[name="bay"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                updateBaySelectionUI();
+                selectedTime = null;
+                document.querySelectorAll('.time-slot-pill').forEach(btn => btn.classList.remove('selected'));
+                updateTimeSlots();
+            });
+
+            // Clicking an already checked radio (common after browser back) won't fire change.
+            // This ensures Bay 1 can be used immediately when state is restored.
+            radio.addEventListener('click', () => {
+                updateBaySelectionUI();
                 updateTimeSlots();
             });
         });
 
         document.querySelectorAll('input[name="duration"]').forEach(radio => {
             radio.addEventListener('change', () => {
-                selectedTime = null;
-                document.querySelectorAll('.time-slot-pill').forEach(btn => btn.classList.remove('selected'));
+                updateDurationSelectionUI();
+                const nextSelectedTime = selectedTime;
+                if (nextSelectedTime) {
+                    updateSelectedTimeRangeUI();
+                } else {
+                    document.querySelectorAll('.time-slot-pill').forEach(btn => btn.classList.remove('selected'));
+                }
                 updateTimeSlots();
+            });
+        });
+
+        document.querySelectorAll('input[name="players"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                updatePlayersSelectionUI();
+                selectedPlayers = parseInt(radio.value, 10) || 1;
+                updateSummary();
             });
         });
 
@@ -619,9 +712,8 @@ function ttn_booking_shortcode() {
         document.querySelectorAll('.time-slot-pill').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 if (btn.disabled) return;
-                document.querySelectorAll('.time-slot-pill').forEach(b => b.classList.remove('selected'));
-                btn.classList.add('selected');
                 selectedTime = btn.getAttribute('data-time');
+                updateSelectedTimeRangeUI();
                 updateSummary();
             });
         });
@@ -632,11 +724,19 @@ function ttn_booking_shortcode() {
             checkoutUrl.searchParams.set('date', selectedDate);
             checkoutUrl.searchParams.set('time', encodeURIComponent(selectedTime));
             checkoutUrl.searchParams.set('duration', document.querySelector('input[name="duration"]:checked').value);
+            checkoutUrl.searchParams.set('players', document.querySelector('input[name="players"]:checked').value);
             window.location.href = checkoutUrl.toString();
         });
 
-        // Initialize: hide time slots until bay is selected
-        timeSlots_el.style.display = 'none';
+        // Initialize from browser-restored state (e.g., when user navigates back).
+        updateBaySelectionUI();
+        updateDurationSelectionUI();
+        updatePlayersSelectionUI();
+        if (document.querySelector('input[name="bay"]:checked')) {
+            updateTimeSlots();
+        } else {
+            timeSlots_el.style.display = 'none';
+        }
     })();
     </script>
     <?php if ($confirmed) : ?>
@@ -678,6 +778,7 @@ function ttn_booking_submit() {
     $date = sanitize_text_field(wp_unslash($_POST['date']));
     $time = sanitize_text_field(wp_unslash($_POST['time']));
     $notes = sanitize_textarea_field(wp_unslash($_POST['notes']));
+    $players = isset($_POST['players']) ? max(1, min(4, intval($_POST['players']))) : 1;
 
     $time_slots = ttn_booking_get_time_slots();
     $selected_slot = null;
@@ -723,6 +824,7 @@ function ttn_booking_submit() {
         update_post_meta($post_id, 'ttn_booking_bay', $bay);
         update_post_meta($post_id, 'ttn_booking_date', $date);
         update_post_meta($post_id, 'ttn_booking_time', $time);
+        update_post_meta($post_id, 'ttn_booking_players', $players);
         update_post_meta($post_id, 'ttn_booking_notes', $notes);
 
         $admin_email = get_option('admin_email');
@@ -740,11 +842,13 @@ function ttn_booking_submit() {
 
         wp_mail($admin_email, $subject, $message);
         wp_mail($email, 'Your Tee Time Nexus booking request', sprintf(
-            "Hi %s,\n\nThanks for your request. We received your reservation for %s on %s from %s.\n\nPlease complete checkout to secure your booking.",
+            "Hi %s,\n\nThanks for your request. We received your reservation for %s on %s from %s for %d player%s.\n\nPlease complete checkout to secure your booking.",
             $name,
             $bay,
             $date,
-            $time
+            $time,
+            $players,
+            $players === 1 ? '' : 's'
         ));
     }
 
@@ -778,6 +882,7 @@ function ttn_booking_checkout() {
     $date = sanitize_text_field(wp_unslash($_POST['date']));
     $time = trim(sanitize_text_field(wp_unslash($_POST['time'])));
     $duration = isset($_POST['duration']) ? intval($_POST['duration']) : 1;
+    $players = isset($_POST['players']) ? max(1, min(4, intval($_POST['players']))) : 1;
     $stripe_token = isset($_POST['stripeToken']) ? sanitize_text_field(wp_unslash($_POST['stripeToken'])) : '';
 
     if (!$stripe_token) {
@@ -853,11 +958,12 @@ function ttn_booking_checkout() {
             'post_status' => 'publish',
             'post_title' => $name . ' - ' . $bay . ' - ' . $date,
             'post_content' => sprintf(
-                "Bay: %s\nDate: %s\nTime: %s\nDuration: %d hours\nName: %s\nPhone: %s\nEmail: %s\nStripe Token: %s",
+                "Bay: %s\nDate: %s\nTime: %s\nDuration: %d hours\nPlayers: %d\nName: %s\nPhone: %s\nEmail: %s\nStripe Token: %s",
                 $bay,
                 $date,
                 $hour_time_label,
                 $duration,
+                $players,
                 $name,
                 $phone,
                 $email,
@@ -875,6 +981,7 @@ function ttn_booking_checkout() {
                 'date' => $date,
                 'time' => $hour_time_label,
                 'duration' => $duration,
+                'players' => $players,
                 'total_price' => $total_price,
                 'payment_status' => 'completed',
                 'stripe_token' => $stripe_token,
@@ -923,6 +1030,7 @@ function ttn_booking_checkout() {
             "Date: %s\n" .
             "Time: %s - %s\n" .
             "Duration: %d hours\n" .
+            "Players: %d\n" .
             "Amount: $%.2f\n" .
             "Payment Status: Completed",
             $name,
@@ -933,6 +1041,7 @@ function ttn_booking_checkout() {
             $selected_slot['label'],
             $end_time_label,
             $duration,
+            $players,
             $total_price
         );
         wp_mail($admin_email, $admin_subject, $admin_message);

@@ -12,13 +12,126 @@ function golf_simulator_theme_setup() {
 }
 add_action('after_setup_theme', 'golf_simulator_theme_setup');
 
+function golf_simulator_theme_get_seo_description() {
+    $default = 'Indoor golf simulator experience with premium bay rentals, coaching, leagues, and private events for players of all levels.';
+
+    if (is_front_page()) {
+        return $default;
+    }
+
+    if (is_singular()) {
+        $post = get_post();
+        if ($post) {
+            if (has_excerpt($post)) {
+                return wp_trim_words(wp_strip_all_tags($post->post_excerpt), 24, '...');
+            }
+
+            $content = wp_strip_all_tags($post->post_content);
+            if (!empty($content)) {
+                return wp_trim_words($content, 24, '...');
+            }
+        }
+    }
+
+    return get_bloginfo('description') ?: $default;
+}
+
+function golf_simulator_theme_get_seo_title() {
+    $site_name = get_bloginfo('name');
+
+    if (is_front_page()) {
+        if (get_bloginfo('description')) {
+            return $site_name . ' | ' . get_bloginfo('description');
+        }
+
+        return $site_name . ' | Premium Indoor Golf Simulator Experience';
+    }
+
+    if (is_singular()) {
+        return get_the_title() . ' | ' . $site_name;
+    }
+
+    if (is_archive()) {
+        return get_the_archive_title() . ' | ' . $site_name;
+    }
+
+    return wp_title('|', false, 'right') . $site_name;
+}
+
+function golf_simulator_theme_render_seo_meta() {
+    global $wp;
+
+    $site_name = get_bloginfo('name');
+    $current_url = home_url(add_query_arg(array(), $wp->request));
+    $title = wp_strip_all_tags(golf_simulator_theme_get_seo_title());
+    $description = wp_strip_all_tags(golf_simulator_theme_get_seo_description());
+    $description = preg_replace('/\s+/', ' ', $description);
+    $image_url = get_theme_mod('golf_simulator_og_image', 'https://images.unsplash.com/photo-1535131749006-b7f58c99034b?auto=format&fit=crop&w=1600&q=80');
+
+    echo "<meta name=\"description\" content=\"" . esc_attr($description) . "\" />\n";
+    echo "<meta name=\"robots\" content=\"index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1\" />\n";
+    echo "<link rel=\"canonical\" href=\"" . esc_url($current_url) . "\" />\n";
+
+    echo "<meta property=\"og:locale\" content=\"" . esc_attr(str_replace('_', '-', get_locale())) . "\" />\n";
+    echo "<meta property=\"og:type\" content=\"website\" />\n";
+    echo "<meta property=\"og:title\" content=\"" . esc_attr($title) . "\" />\n";
+    echo "<meta property=\"og:description\" content=\"" . esc_attr($description) . "\" />\n";
+    echo "<meta property=\"og:url\" content=\"" . esc_url($current_url) . "\" />\n";
+    echo "<meta property=\"og:site_name\" content=\"" . esc_attr($site_name) . "\" />\n";
+    echo "<meta property=\"og:image\" content=\"" . esc_url($image_url) . "\" />\n";
+    echo "<meta property=\"og:image:alt\" content=\"" . esc_attr($title) . "\" />\n";
+
+    echo "<meta name=\"twitter:card\" content=\"summary_large_image\" />\n";
+    echo "<meta name=\"twitter:title\" content=\"" . esc_attr($title) . "\" />\n";
+    echo "<meta name=\"twitter:description\" content=\"" . esc_attr($description) . "\" />\n";
+    echo "<meta name=\"twitter:image\" content=\"" . esc_url($image_url) . "\" />\n";
+    echo "<meta name=\"twitter:site\" content=\"@teetimenexus\" />\n";
+    echo "<meta name=\"twitter:creator\" content=\"@teetimenexus\" />\n";
+}
+add_action('wp_head', 'golf_simulator_theme_render_seo_meta', 1);
+
+function golf_simulator_theme_render_local_business_schema() {
+    if (!is_front_page() && !is_singular()) {
+        return;
+    }
+
+    $schema = array(
+        '@context' => 'https://schema.org',
+        '@type' => 'SportsActivityLocation',
+        'name' => get_bloginfo('name'),
+        'description' => golf_simulator_theme_get_seo_description(),
+        'url' => home_url('/'),
+        'telephone' => '+1-555-123-4567',
+        'email' => 'hello@teetimenexus.com',
+        'address' => array(
+            '@type' => 'PostalAddress',
+            'streetAddress' => '123 Golf Lane',
+            'addressLocality' => 'Your City',
+            'addressRegion' => 'TX',
+            'postalCode' => '75001',
+            'addressCountry' => 'US',
+        ),
+        'openingHours' => 'Mo-Su 10:00-22:00',
+        'sameAs' => array(
+            'https://www.facebook.com/',
+            'https://www.instagram.com/',
+        ),
+    );
+
+    echo '<script type="application/ld+json">' . wp_json_encode($schema) . '</script>' . "\n";
+}
+add_action('wp_head', 'golf_simulator_theme_render_local_business_schema', 2);
+
 function golf_simulator_theme_enqueue_assets() {
-    wp_enqueue_style('golf-simulator-theme-style', get_stylesheet_uri(), array(), wp_get_theme()->get('Version'));
+    $theme_version = wp_get_theme()->get('Version');
+    $style_version = file_exists(get_stylesheet_directory() . '/style.css') ? filemtime(get_stylesheet_directory() . '/style.css') : $theme_version;
+
+    wp_enqueue_style('golf-simulator-theme-style', get_stylesheet_uri(), array(), $style_version);
     wp_enqueue_script(
         'golf-simulator-theme-slider',
         get_template_directory_uri() . '/assets/js/slider.js',
         array(),
-        wp_get_theme()->get('Version'),
+        $theme_version,
         true
     );
 }

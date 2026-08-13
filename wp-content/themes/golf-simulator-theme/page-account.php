@@ -22,6 +22,7 @@ $user_bookings = ttn_get_user_bookings($user_email);
 $time_slots = apply_filters('ttn_get_time_slots', array());
 if (empty($time_slots)) {
     $time_slots = array(
+        array('label' => '10:00 AM', 'start' => '10:00'),
         array('label' => '11:00 AM', 'start' => '11:00'),
         array('label' => '12:00 PM', 'start' => '12:00'),
         array('label' => '1:00 PM', 'start' => '13:00'),
