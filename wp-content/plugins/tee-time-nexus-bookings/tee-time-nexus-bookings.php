@@ -1045,7 +1045,7 @@ function ttn_booking_checkout() {
                 'duration' => $duration,
                 'players' => $players,
                 'total_price' => $total_price,
-                'payment_status' => 'completed',
+                'payment_status' => 'Payment submitted - transaction verification required',
                 'stripe_token' => $stripe_token,
                 'parent_id' => ($i > 0) ? $parent_booking_id : null,
             ));
