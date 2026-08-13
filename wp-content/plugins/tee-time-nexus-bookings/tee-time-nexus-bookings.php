@@ -3,7 +3,7 @@
  * Plugin Name: Tee Time Nexus Bookings
  * Description: Adds an hourly bay reservation workflow with availability checks, calendar visibility, and Stripe-ready checkout for Tee Time Nexus.
  * Version: 1.0.0
- * Author: Copilot
+ * Author: Muhammad Rizwan
  */
 
 if (!defined('ABSPATH')) {
