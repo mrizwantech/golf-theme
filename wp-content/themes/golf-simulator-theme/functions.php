@@ -163,6 +163,9 @@ function golf_simulator_theme_render_color_theme_css() {
         $vars = array(
             '--primary' => '#0f5132',
             '--secondary' => '#0f5132',
+            '--primary-rgb' => '15, 81, 50',
+            '--primary-hover' => '#147a45',
+            '--primary-contrast' => '#ffffff',
             '--bg' => '#ffffff',
             '--text' => '#101010',
             '--muted' => '#4b5563',
@@ -183,6 +186,9 @@ function golf_simulator_theme_render_color_theme_css() {
         $vars = array(
             '--primary' => '#23D5EA',
             '--secondary' => '#23D5EA',
+            '--primary-rgb' => '35, 213, 234',
+            '--primary-hover' => '#5be3f3',
+            '--primary-contrast' => '#0a1a1d',
         );
     } else {
         return;
