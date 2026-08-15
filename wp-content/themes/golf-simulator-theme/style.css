@@ -11,14 +11,48 @@ Requires PHP: 7.4
 Text Domain: golf-simulator-theme
 */
 
+/* ==========================================================================
+   Theme tokens
+   Default palette below is "Dark Green". The "Light" and "Dark Cyan" palettes
+   are applied by overriding these same custom properties (see functions.php:
+   golf_simulator_theme_render_color_theme_css()) so every rule that consumes
+   a token below automatically follows the admin-selected color theme.
+   ========================================================================== */
 :root {
+    /* Brand accent (buttons, links, highlights) */
     --primary: #A1E04C;
     --secondary: #A1E04C;
+
+    /* Page background / copy */
     --bg: #050505;
     --text: #f5f5f5;
     --white: #ffffff;
     --muted: #b8b8b8;
     --shadow: 0 18px 45px rgba(0, 0, 0, 0.45);
+
+    /* Raised surfaces: header, hero booking panel, cards, entry content */
+    --surface: #121212;
+    --surface-strong: rgba(10, 12, 12, 0.96);
+    --surface-header: rgba(0, 0, 0, 0.96);
+    --surface-hero: #020505;
+
+    /* Text placed on the raised surfaces above */
+    --heading: #ffffff;
+
+    /* Hairline borders / dividers on raised surfaces */
+    --border-soft: rgba(255, 255, 255, 0.08);
+    --border-soft-strong: rgba(255, 255, 255, 0.12);
+
+    /* Inputs / pills inside the dark booking panel */
+    --panel-input-bg: rgba(255, 255, 255, 0.04);
+    --panel-input-border: rgba(255, 255, 255, 0.09);
+
+    /* Secondary button */
+    --btn-secondary-border: rgba(255, 255, 255, 0.7);
+
+    /* Footer */
+    --footer-bg: #0f1e15;
+    --footer-text: #dde8df;
 }
 
 * { box-sizing: border-box; }
@@ -36,8 +70,8 @@ img { max-width: 100%; height: auto; }
     position: sticky;
     top: 0;
     z-index: 999;
-    background: rgba(0, 0, 0, 0.96);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--surface-header);
+    border-bottom: 1px solid var(--border-soft);
     backdrop-filter: blur(12px);
 }
 .container {
@@ -59,7 +93,7 @@ img { max-width: 100%; height: auto; }
     overflow: hidden;
     min-height: 720px;
     height: 100%;
-    background: #020505;
+    background: var(--surface-hero);
     border-radius: 26px;
     box-shadow: var(--shadow);
 }
@@ -170,8 +204,8 @@ img { max-width: 100%; height: auto; }
     width: 100%;
     min-height: 720px;
     height: 100%;
-    background: rgba(10, 12, 12, 0.96);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: var(--surface-strong);
+    border: 1px solid var(--border-soft);
     border-radius: 24px;
     box-shadow: var(--shadow);
     padding: 18px 16px 14px;
@@ -190,7 +224,7 @@ img { max-width: 100%; height: auto; }
     line-height: 1.1;
     font-weight: 800;
     letter-spacing: -0.04em;
-    color: var(--white);
+    color: var(--heading);
 }
 .booking-live-badge {
     display: inline-flex;
@@ -198,7 +232,7 @@ img { max-width: 100%; height: auto; }
     gap: 8px;
     background: rgba(161, 224, 76, 0.12);
     border: 1px solid rgba(161, 224, 76, 0.35);
-    color: var(--white);
+    color: var(--heading);
     border-radius: 999px;
     padding: 6px 10px;
     font-size: 0.72rem;
@@ -220,7 +254,7 @@ img { max-width: 100%; height: auto; }
 .booking-panel .booking-form label,
 .booking-panel .ttn-booking-form label,
 .booking-panel form label {
-    color: var(--white);
+    color: var(--heading);
     margin-bottom: 8px;
     font-weight: 700;
     font-size: 0.98rem;
@@ -239,9 +273,9 @@ img { max-width: 100%; height: auto; }
     min-height: 36px;
     padding: 8px 10px;
     font-size: 0.82rem;
-    background: rgba(255,255,255,0.04);
-    border-color: rgba(255,255,255,0.08);
-    color: var(--white);
+    background: var(--panel-input-bg);
+    border-color: var(--panel-input-border);
+    color: var(--heading);
 }
 .booking-panel .bay-pill.selected,
 .booking-panel .duration-pill.selected,
@@ -276,9 +310,9 @@ img { max-width: 100%; height: auto; }
 .booking-panel form select,
 .booking-panel form textarea,
 .booking-panel #ttn-date {
-    background: rgba(255,255,255,0.04) !important;
-    border: 1px solid rgba(255,255,255,0.09) !important;
-    color: var(--white) !important;
+    background: var(--panel-input-bg) !important;
+    border: 1px solid var(--panel-input-border) !important;
+    color: var(--heading) !important;
     border-radius: 10px;
     padding: 10px 12px;
     font-size: 0.95rem;
@@ -329,7 +363,7 @@ img { max-width: 100%; height: auto; }
     gap: 12px;
     font-weight: 800;
     letter-spacing: 0.4px;
-    color: var(--white);
+    color: var(--heading);
     text-decoration: none;
     font-size: 1.15rem;
     line-height: 1.2;
@@ -352,7 +386,7 @@ img { max-width: 100%; height: auto; }
     border-radius: 12px;
     background: rgba(161, 224, 76, 0.16);
     border: 1px solid rgba(161,224,76,0.5);
-    color: var(--white);
+    color: var(--heading);
     font-size: 0.8rem;
     font-weight: 800;
     letter-spacing: 0.08em;
@@ -369,7 +403,7 @@ img { max-width: 100%; height: auto; }
 .brand-fallback-top,
 .brand-fallback-bottom {
     display: block;
-    color: var(--white);
+    color: var(--heading);
     font-weight: 800;
     letter-spacing: 0.12em;
     font-size: 0.72rem;
@@ -392,7 +426,7 @@ img { max-width: 100%; height: auto; }
 }
 .user-link {
     display: inline-block;
-    color: var(--white);
+    color: var(--heading);
     text-decoration: none;
     font-weight: 600;
     font-size: 0.9rem;
@@ -401,7 +435,7 @@ img { max-width: 100%; height: auto; }
     transition: all 0.2s ease;
 }
 .user-link:hover {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--border-soft);
     color: var(--secondary);
 }
 .brand-mark {
@@ -432,7 +466,7 @@ img { max-width: 100%; height: auto; }
     display: inline-block;
     padding: 6px 0;
     font-weight: 600;
-    color: var(--white);
+    color: var(--heading);
     transition: color 0.2s ease;
     font-size: 0.95rem;
 }
@@ -488,8 +522,8 @@ img { max-width: 100%; height: auto; }
 }
 .btn-secondary {
     background: transparent;
-    border: 1px solid rgba(255,255,255,0.7);
-    color: var(--white);
+    border: 1px solid var(--btn-secondary-border);
+    color: var(--heading);
 }
 .btn:hover { transform: translateY(-1px); }
 
@@ -517,12 +551,12 @@ img { max-width: 100%; height: auto; }
     gap: 22px;
 }
 .card {
-    background: #121212;
+    background: var(--surface);
     color: var(--text);
     padding: 24px;
     border-radius: 18px;
     box-shadow: var(--shadow);
-    border: 1px solid rgba(255,255,255,0.06);
+    border: 1px solid var(--border-soft);
 }
 .kicker {
     color: var(--primary);
@@ -536,8 +570,8 @@ img { max-width: 100%; height: auto; }
     font-weight: 800;
 }
 .site-footer {
-    background: #0f1e15;
-    color: #dde8df;
+    background: var(--footer-bg);
+    color: var(--footer-text);
     padding: 30px 0;
 }
 .footer-inner {
@@ -547,13 +581,13 @@ img { max-width: 100%; height: auto; }
     flex-wrap: wrap;
 }
 .entry-content {
-    background: #121212;
+    background: var(--surface);
     color: var(--text);
     padding: 28px;
     border-radius: 18px;
     box-shadow: var(--shadow);
     margin: 32px auto;
-    border: 1px solid rgba(255,255,255,0.06);
+    border: 1px solid var(--border-soft);
 }
 .booking-card {
     max-width: 820px;
@@ -590,9 +624,9 @@ img { max-width: 100%; height: auto; }
     margin: 20px 0;
     padding: 14px 16px;
     border-radius: 12px;
-    background: rgba(255,255,255,0.04);
-    border: 1px solid rgba(255,255,255,0.08);
-    color: var(--white);
+    background: var(--panel-input-bg);
+    border: 1px solid var(--panel-input-border);
+    color: var(--heading);
 }
 .booking-summary ul {
     margin: 8px 0 0;
@@ -602,13 +636,13 @@ img { max-width: 100%; height: auto; }
     margin-bottom: 4px;
 }
 .booking-selection-summary {
-    border: 1px solid rgba(255,255,255,0.08);
-    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--panel-input-border);
+    background: var(--panel-input-bg);
 }
 .booking-summary strong,
 .booking-summary span,
 #ttn-selection-summary {
-    color: var(--white) !important;
+    color: var(--heading) !important;
 }
 .booking-legend {
     display: flex;

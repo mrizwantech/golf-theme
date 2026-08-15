@@ -137,6 +137,65 @@ function golf_simulator_theme_enqueue_assets() {
 }
 add_action('wp_enqueue_scripts', 'golf_simulator_theme_enqueue_assets');
 
+function golf_simulator_theme_sanitize_color_theme($value) {
+    $allowed = array('dark-green', 'light', 'dark-cyan');
+    return in_array($value, $allowed, true) ? $value : 'dark-green';
+}
+
+function golf_simulator_theme_get_color_theme() {
+    return golf_simulator_theme_sanitize_color_theme(get_theme_mod('golf_simulator_color_theme', 'dark-green'));
+}
+
+function golf_simulator_theme_body_class($classes) {
+    $classes[] = 'theme-' . golf_simulator_theme_get_color_theme();
+    return $classes;
+}
+add_filter('body_class', 'golf_simulator_theme_body_class');
+
+/**
+ * Overrides the base :root palette per admin-selected theme; light swaps to white/black,
+ * dark-cyan keeps the dark palette but swaps the accent color to #23D5EA.
+ */
+function golf_simulator_theme_render_color_theme_css() {
+    $theme = golf_simulator_theme_get_color_theme();
+
+    if ($theme === 'light') {
+        $vars = array(
+            '--primary' => '#0f5132',
+            '--secondary' => '#0f5132',
+            '--bg' => '#ffffff',
+            '--text' => '#101010',
+            '--muted' => '#4b5563',
+            '--shadow' => '0 18px 45px rgba(0, 0, 0, 0.12)',
+            '--surface' => '#ffffff',
+            '--surface-strong' => '#ffffff',
+            '--surface-header' => '#ffffff',
+            '--heading' => '#101010',
+            '--border-soft' => 'rgba(0, 0, 0, 0.1)',
+            '--border-soft-strong' => 'rgba(0, 0, 0, 0.16)',
+            '--panel-input-bg' => 'rgba(0, 0, 0, 0.04)',
+            '--panel-input-border' => 'rgba(0, 0, 0, 0.14)',
+            '--btn-secondary-border' => 'rgba(0, 0, 0, 0.35)',
+            '--footer-bg' => '#f3f4f6',
+            '--footer-text' => '#101010',
+        );
+    } elseif ($theme === 'dark-cyan') {
+        $vars = array(
+            '--primary' => '#23D5EA',
+            '--secondary' => '#23D5EA',
+        );
+    } else {
+        return;
+    }
+
+    echo '<style id="golf-simulator-theme-color-overrides">:root{';
+    foreach ($vars as $property => $value) {
+        echo esc_attr($property) . ':' . esc_attr($value) . ';';
+    }
+    echo '}</style>' . "\n";
+}
+add_action('wp_head', 'golf_simulator_theme_render_color_theme_css', 5);
+
 function golf_simulator_theme_customize_register($wp_customize) {
     $wp_customize->add_section('golf_simulator_branding_section', array(
         'title' => __('Theme Branding', 'golf-simulator-theme'),
@@ -152,6 +211,22 @@ function golf_simulator_theme_customize_register($wp_customize) {
         'section' => 'golf_simulator_branding_section',
         'settings' => 'golf_simulator_site_logo',
     )));
+
+    $wp_customize->add_setting('golf_simulator_color_theme', array(
+        'default' => 'dark-green',
+        'sanitize_callback' => 'golf_simulator_theme_sanitize_color_theme',
+    ));
+    $wp_customize->add_control('golf_simulator_color_theme', array(
+        'label' => __('Color Theme', 'golf-simulator-theme'),
+        'description' => __('Choose the site-wide color palette.', 'golf-simulator-theme'),
+        'section' => 'golf_simulator_branding_section',
+        'type' => 'select',
+        'choices' => array(
+            'dark-green' => __('Dark Green (default)', 'golf-simulator-theme'),
+            'light' => __('Light', 'golf-simulator-theme'),
+            'dark-cyan' => __('Dark Cyan (#23D5EA)', 'golf-simulator-theme'),
+        ),
+    ));
 
     $wp_customize->add_section('golf_simulator_slider_section', array(
         'title' => __('Homepage Slider', 'golf-simulator-theme'),
