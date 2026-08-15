@@ -194,7 +194,8 @@ function golf_simulator_theme_render_color_theme_css() {
     }
     echo '}</style>' . "\n";
 }
-add_action('wp_head', 'golf_simulator_theme_render_color_theme_css', 5);
+// Priority 100 ensures this prints after the enqueued stylesheet's own :root block.
+add_action('wp_head', 'golf_simulator_theme_render_color_theme_css', 100);
 
 function golf_simulator_theme_customize_register($wp_customize) {
     $wp_customize->add_section('golf_simulator_branding_section', array(
