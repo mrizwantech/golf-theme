@@ -108,6 +108,20 @@ if (!$bay || !$date || !$time) {
                     Phone Number
                     <input type="tel" name="phone" placeholder="(555) 123-4567" autocomplete="tel" required>
                 </label>
+                <?php if (!is_user_logged_in()) : ?>
+                <label class="full-width">
+                    <strong>Create an account (optional)</strong>
+                </label>
+                <p class="full-width checkout-account-note">Set a password to save this booking to an account and manage future reservations. Leave blank to book as a guest.</p>
+                <label>
+                    Password
+                    <input type="password" name="create_account_password" placeholder="At least 6 characters" autocomplete="new-password" minlength="6">
+                </label>
+                <label>
+                    Confirm Password
+                    <input type="password" name="create_account_password_confirm" placeholder="Repeat password" autocomplete="new-password" minlength="6">
+                </label>
+                <?php endif; ?>
                 <label class="full-width">
                     <strong>Card Details</strong>
                 </label>
@@ -324,6 +338,11 @@ if (!$bay || !$date || !$time) {
     border-radius: 12px;
     background: #121212;
     color: #ffffff;
+}
+.checkout-account-note {
+    margin: -6px 0 4px;
+    font-size: 0.85rem;
+    color: var(--muted);
 }
 </style>
 

@@ -40,7 +40,75 @@ function ttn_booking_get_end_time_label($time_slots, $start_index, $duration) {
 function ttn_booking_get_account_login_url() {
     $account_page = get_page_by_path('my-account');
     $account_url = $account_page ? get_permalink($account_page) : home_url('/my-account/');
+
+    if (function_exists('golf_simulator_theme_get_login_url')) {
+        return golf_simulator_theme_get_login_url($account_url);
+    }
+
     return wp_login_url($account_url);
+}
+
+function ttn_booking_generate_unique_username($email) {
+    if (function_exists('golf_simulator_theme_generate_unique_username')) {
+        return golf_simulator_theme_generate_unique_username($email);
+    }
+
+    $base = sanitize_user(current(explode('@', $email)), true);
+    if ($base === '') {
+        $base = 'golfer';
+    }
+
+    $username = $base;
+    $suffix = 1;
+    while (username_exists($username)) {
+        $suffix++;
+        $username = $base . $suffix;
+    }
+
+    return $username;
+}
+
+/**
+ * Logs the customer in or creates their account when they opted to set a
+ * password during guest checkout. Returns true if the customer ends up
+ * authenticated (existing session, fresh signup, or successful sign-in).
+ */
+function ttn_booking_maybe_create_account($email, $name, $password, $confirm_password) {
+    if (is_user_logged_in()) {
+        return true;
+    }
+
+    if ($password === '' || $password !== $confirm_password || strlen($password) < 6) {
+        return false;
+    }
+
+    if (email_exists($email)) {
+        $signon = wp_signon(array(
+            'user_login' => $email,
+            'user_password' => $password,
+            'remember' => true,
+        ), is_ssl());
+
+        return !is_wp_error($signon);
+    }
+
+    $user_id = wp_insert_user(array(
+        'user_login' => ttn_booking_generate_unique_username($email),
+        'user_email' => $email,
+        'user_pass' => $password,
+        'display_name' => $name,
+        'first_name' => $name,
+        'role' => 'subscriber',
+    ));
+
+    if (is_wp_error($user_id)) {
+        return false;
+    }
+
+    wp_set_current_user($user_id);
+    wp_set_auth_cookie($user_id, true);
+
+    return true;
 }
 
 function ttn_booking_get_logo_url() {
@@ -205,6 +273,9 @@ function ttn_save_booking_metadata($post_id, $booking_data) {
     }
     if (isset($booking_data['parent_id'])) {
         update_post_meta($post_id, 'ttn_booking_parent_id', $booking_data['parent_id']);
+    }
+    if (!empty($booking_data['user_id'])) {
+        update_post_meta($post_id, 'ttn_booking_user_id', (int) $booking_data['user_id']);
     }
 }
 
@@ -946,6 +1017,8 @@ function ttn_booking_checkout() {
     $duration = isset($_POST['duration']) ? intval($_POST['duration']) : 1;
     $players = isset($_POST['players']) ? max(1, min(4, intval($_POST['players']))) : 1;
     $stripe_token = isset($_POST['stripeToken']) ? sanitize_text_field(wp_unslash($_POST['stripeToken'])) : '';
+    $new_password = isset($_POST['create_account_password']) ? (string) wp_unslash($_POST['create_account_password']) : '';
+    $new_password_confirm = isset($_POST['create_account_password_confirm']) ? (string) wp_unslash($_POST['create_account_password_confirm']) : '';
 
     if (!$stripe_token) {
         wp_die(__('Payment token is missing.', 'tee-time-nexus-bookings'));
@@ -1010,6 +1083,8 @@ function ttn_booking_checkout() {
     // Create booking entries for each hour
     $total_price = $duration * 50;
     $parent_booking_id = null;
+    $account_created = ttn_booking_maybe_create_account($email, $name, $new_password, $new_password_confirm);
+    $booking_user_id = get_current_user_id();
 
     for ($i = 0; $i < $duration; $i++) {
         $hour_slot = $time_slots[$start_index + $i];
@@ -1048,6 +1123,7 @@ function ttn_booking_checkout() {
                 'payment_status' => 'Payment submitted - transaction verification required',
                 'stripe_token' => $stripe_token,
                 'parent_id' => ($i > 0) ? $parent_booking_id : null,
+                'user_id' => $booking_user_id,
             ));
 
             // Keep track of parent booking
@@ -1065,9 +1141,13 @@ function ttn_booking_checkout() {
         $payment_status = 'Payment submitted - transaction verification required';
 
         $subject = 'Your Tee Time Nexus Booking Confirmation';
+        $intro = 'Hi ' . $name . ', your reservation details are below. Keep this email for your records.';
+        if ($account_created && $new_password !== '') {
+            $intro .= ' We also set up your account so you can log in with this email to manage future bookings.';
+        }
         $message = ttn_booking_render_email(
             'Reservation received',
-            'Hi ' . $name . ', your reservation details are below. Keep this email for your records.',
+            $intro,
             array(
                 'Booking reference' => $booking_reference,
                 'Bay' => ttn_get_bay_display_name($bay),

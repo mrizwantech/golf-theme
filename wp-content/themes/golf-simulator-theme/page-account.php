@@ -7,7 +7,7 @@ get_header();
 
 // Redirect if not logged in
 if (!is_user_logged_in()) {
-    echo '<main class="container"><article class="entry-content"><p>Please <a href="' . esc_url(wp_login_url(get_permalink())) . '">log in</a> to manage your bookings.</p></article></main>';
+    echo '<main class="container"><article class="entry-content"><p>Please <a href="' . esc_url(golf_simulator_theme_get_login_url(get_permalink())) . '">log in</a> to manage your bookings.</p></article></main>';
     get_footer();
     exit;
 }

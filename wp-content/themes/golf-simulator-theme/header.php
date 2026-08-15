@@ -31,7 +31,7 @@
                 <a href="<?php echo esc_url(home_url('/my-account/')); ?>" class="user-link">My Account</a>
                 <a href="<?php echo esc_url(wp_logout_url(home_url())); ?>" class="user-link">Logout</a>
             <?php else : ?>
-                <a href="<?php echo esc_url(wp_login_url()); ?>" class="user-link">Login</a>
+                <a href="<?php echo esc_url(golf_simulator_theme_get_login_url()); ?>" class="user-link">Login</a>
             <?php endif; ?>
         </div>
     </div>
