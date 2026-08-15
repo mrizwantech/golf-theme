@@ -144,6 +144,25 @@ get_header();
             document.getElementById('auth-panel-' + target).classList.add('active');
         });
     });
+
+    document.querySelectorAll('.auth-panel form').forEach(function(form) {
+        form.addEventListener('submit', function() {
+            if (form.dataset.submitting === 'true') {
+                return;
+            }
+            form.dataset.submitting = 'true';
+
+            var button = form.querySelector('button[type="submit"]');
+            if (!button) {
+                return;
+            }
+
+            var isRegister = form.querySelector('input[name="ttn_auth_action"]').value === 'register';
+            button.disabled = true;
+            button.classList.add('is-loading');
+            button.innerHTML = '<span class="btn-spinner" aria-hidden="true"></span>' + (isRegister ? 'Creating account...' : 'Logging in...');
+        });
+    });
 })();
 </script>
 

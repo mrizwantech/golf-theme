@@ -529,6 +529,30 @@ img { max-width: 100%; height: auto; }
     color: var(--heading);
 }
 .btn:hover { transform: translateY(-1px); }
+.btn:active { transform: translateY(0); filter: brightness(0.92); }
+.btn:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+.btn.is-loading {
+    opacity: 0.75;
+    cursor: progress;
+    pointer-events: none;
+}
+.btn-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    margin-right: 8px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    vertical-align: -2px;
+    animation: btn-spin 0.6s linear infinite;
+}
+@keyframes btn-spin {
+    to { transform: rotate(360deg); }
+}
 
 .booking-panel .btn,
 .booking-panel button[type="submit"],
