@@ -394,24 +394,6 @@ function golf_simulator_theme_get_login_url($redirect_to = '', $tab = 'login') {
     return $url;
 }
 
-function golf_simulator_theme_set_auth_message($message, $success = false) {
-    $token = wp_generate_password(12, false);
-    set_transient('ttn_auth_message_' . $token, array('message' => $message, 'success' => $success), 60);
-    return $token;
-}
-
-function golf_simulator_theme_get_auth_message() {
-    if (empty($_GET['ttn_msg'])) {
-        return null;
-    }
-
-    $token = sanitize_text_field(wp_unslash($_GET['ttn_msg']));
-    $data = get_transient('ttn_auth_message_' . $token);
-    delete_transient('ttn_auth_message_' . $token);
-
-    return $data ?: null;
-}
-
 function golf_simulator_theme_generate_unique_username($email) {
     $base = sanitize_user(current(explode('@', $email)), true);
     if ($base === '') {
@@ -428,13 +410,17 @@ function golf_simulator_theme_generate_unique_username($email) {
     return $username;
 }
 
-function golf_simulator_theme_handle_login() {
+/**
+ * Processes the login form on the same request/page (no redirect-based
+ * messaging) so the result is never at the mercy of page caching or a
+ * transient that failed to persist. Returns an error string, or redirects
+ * and exits on success.
+ */
+function golf_simulator_theme_process_login($redirect_to) {
     if (!isset($_POST['ttn_login_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['ttn_login_nonce'])), 'ttn_user_login')) {
-        wp_die(__('Security check failed.', 'golf-simulator-theme'));
+        return __('Security check failed. Please refresh the page and try again.', 'golf-simulator-theme');
     }
 
-    $login_page = golf_simulator_theme_get_login_url();
-    $redirect_to = isset($_POST['redirect_to']) ? esc_url_raw(wp_unslash($_POST['redirect_to'])) : home_url('/my-account/');
     $email = sanitize_text_field(wp_unslash($_POST['email'] ?? ''));
     $password = (string) ($_POST['password'] ?? '');
 
@@ -445,38 +431,32 @@ function golf_simulator_theme_handle_login() {
     ), is_ssl());
 
     if (is_wp_error($user)) {
-        $token = golf_simulator_theme_set_auth_message(__('Incorrect email or password. Please try again.', 'golf-simulator-theme'));
-        wp_safe_redirect(add_query_arg('ttn_msg', $token, $login_page));
-        exit;
+        return __('Incorrect email or password. Please try again.', 'golf-simulator-theme');
     }
 
     wp_safe_redirect($redirect_to);
     exit;
 }
-add_action('admin_post_nopriv_ttn_user_login', 'golf_simulator_theme_handle_login');
-add_action('admin_post_ttn_user_login', 'golf_simulator_theme_handle_login');
 
-function golf_simulator_theme_handle_register() {
+/**
+ * Processes the register form on the same request/page. See
+ * golf_simulator_theme_process_login() for why this avoids redirects.
+ */
+function golf_simulator_theme_process_register($redirect_to) {
     if (!isset($_POST['ttn_register_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['ttn_register_nonce'])), 'ttn_user_register')) {
-        wp_die(__('Security check failed.', 'golf-simulator-theme'));
+        return __('Security check failed. Please refresh the page and try again.', 'golf-simulator-theme');
     }
 
-    $login_page = golf_simulator_theme_get_login_url('', 'register');
-    $redirect_to = isset($_POST['redirect_to']) ? esc_url_raw(wp_unslash($_POST['redirect_to'])) : home_url('/my-account/');
-    $name = sanitize_text_field(wp_unslash($_POST['name'] ?? ''));
+    $name = sanitize_text_field(wp_unslash($_POST['ttn_name'] ?? ''));
     $email = sanitize_email(wp_unslash($_POST['email'] ?? ''));
     $password = (string) ($_POST['password'] ?? '');
 
     if (!$name || !is_email($email) || strlen($password) < 6) {
-        $token = golf_simulator_theme_set_auth_message(__('Please enter your name, a valid email, and a password of at least 6 characters.', 'golf-simulator-theme'));
-        wp_safe_redirect(add_query_arg('ttn_msg', $token, $login_page));
-        exit;
+        return __('Please enter your name, a valid email, and a password of at least 6 characters.', 'golf-simulator-theme');
     }
 
     if (email_exists($email)) {
-        $token = golf_simulator_theme_set_auth_message(__('An account with that email already exists. Please log in instead.', 'golf-simulator-theme'));
-        wp_safe_redirect(add_query_arg('ttn_msg', $token, golf_simulator_theme_get_login_url()));
-        exit;
+        return __('An account with that email already exists. Please log in instead.', 'golf-simulator-theme');
     }
 
     $user_id = wp_insert_user(array(
@@ -489,9 +469,7 @@ function golf_simulator_theme_handle_register() {
     ));
 
     if (is_wp_error($user_id)) {
-        $token = golf_simulator_theme_set_auth_message(__('We could not create your account. Please try again.', 'golf-simulator-theme'));
-        wp_safe_redirect(add_query_arg('ttn_msg', $token, $login_page));
-        exit;
+        return __('We could not create your account. Please try again.', 'golf-simulator-theme');
     }
 
     wp_set_current_user($user_id);
@@ -500,6 +478,5 @@ function golf_simulator_theme_handle_register() {
     wp_safe_redirect($redirect_to);
     exit;
 }
-add_action('admin_post_nopriv_ttn_user_register', 'golf_simulator_theme_handle_register');
-add_action('admin_post_ttn_user_register', 'golf_simulator_theme_handle_register');
+
 

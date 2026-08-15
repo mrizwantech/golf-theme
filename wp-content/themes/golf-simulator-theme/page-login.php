@@ -3,7 +3,6 @@
 Template Name: Account Access
 Description: Branded login / register page
 */
-get_header();
 
 if (is_user_logged_in()) {
     wp_safe_redirect(home_url('/my-account/'));
@@ -11,9 +10,29 @@ if (is_user_logged_in()) {
 }
 
 $redirect_to = isset($_GET['redirect_to']) ? esc_url_raw(wp_unslash($_GET['redirect_to'])) : home_url('/my-account/');
-$requested_tab = isset($_GET['tab']) ? sanitize_text_field(wp_unslash($_GET['tab'])) : '';
-$active_tab = ($requested_tab === 'register' || get_post_field('post_name') === 'register') ? 'register' : 'login';
-$auth_message = golf_simulator_theme_get_auth_message();
+if (isset($_POST['redirect_to'])) {
+    $redirect_to = esc_url_raw(wp_unslash($_POST['redirect_to']));
+}
+
+$active_tab = (isset($_GET['tab']) && $_GET['tab'] === 'register') || get_post_field('post_name') === 'register' ? 'register' : 'login';
+$error_message = '';
+
+// Processed here (before get_header()) so a successful login/register can
+// redirect immediately; on failure we fall through and render the page
+// with the error inline, avoiding any redirect/transient/cache edge cases.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ttn_auth_action'])) {
+    $submitted_action = sanitize_text_field(wp_unslash($_POST['ttn_auth_action']));
+
+    if ($submitted_action === 'register') {
+        $active_tab = 'register';
+        $error_message = golf_simulator_theme_process_register($redirect_to);
+    } elseif ($submitted_action === 'login') {
+        $active_tab = 'login';
+        $error_message = golf_simulator_theme_process_login($redirect_to);
+    }
+}
+
+get_header();
 ?>
 <main class="container">
     <article class="entry-content auth-card">
@@ -21,9 +40,9 @@ $auth_message = golf_simulator_theme_get_auth_message();
         <h1>My Account</h1>
         <p>Log in to manage your bookings, or create an account to book faster next time.</p>
 
-        <?php if ($auth_message) : ?>
-            <div class="notice notice-<?php echo esc_attr($auth_message['success'] ? 'success' : 'error'); ?>">
-                <p><?php echo esc_html($auth_message['message']); ?></p>
+        <?php if ($error_message) : ?>
+            <div class="notice notice-error">
+                <p><?php echo esc_html($error_message); ?></p>
             </div>
         <?php endif; ?>
 
@@ -33,8 +52,8 @@ $auth_message = golf_simulator_theme_get_auth_message();
         </div>
 
         <div class="auth-panel<?php echo $active_tab === 'login' ? ' active' : ''; ?>" id="auth-panel-login">
-            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                <input type="hidden" name="action" value="ttn_user_login">
+            <form method="post">
+                <input type="hidden" name="ttn_auth_action" value="login">
                 <input type="hidden" name="redirect_to" value="<?php echo esc_attr($redirect_to); ?>">
                 <?php wp_nonce_field('ttn_user_login', 'ttn_login_nonce'); ?>
                 <div class="form-grid">
@@ -52,14 +71,14 @@ $auth_message = golf_simulator_theme_get_auth_message();
         </div>
 
         <div class="auth-panel<?php echo $active_tab === 'register' ? ' active' : ''; ?>" id="auth-panel-register">
-            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
-                <input type="hidden" name="action" value="ttn_user_register">
+            <form method="post">
+                <input type="hidden" name="ttn_auth_action" value="register">
                 <input type="hidden" name="redirect_to" value="<?php echo esc_attr($redirect_to); ?>">
                 <?php wp_nonce_field('ttn_user_register', 'ttn_register_nonce'); ?>
                 <div class="form-grid">
                     <label class="full-width">
                         Full Name
-                        <input type="text" name="name" placeholder="Your full name" autocomplete="name" required>
+                        <input type="text" name="ttn_name" placeholder="Your full name" autocomplete="name" required>
                     </label>
                     <label class="full-width">
                         Email Address
@@ -111,11 +130,6 @@ $auth_message = golf_simulator_theme_get_auth_message();
     background: rgba(220, 38, 38, 0.12);
     border: 1px solid rgba(220, 38, 38, 0.35);
     color: #f87171;
-}
-.auth-card .notice-success {
-    background: rgba(var(--primary-rgb), 0.12);
-    border: 1px solid rgba(var(--primary-rgb), 0.35);
-    color: var(--heading);
 }
 </style>
 <script>
