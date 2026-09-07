@@ -69,6 +69,154 @@ body {
 a { color: inherit; text-decoration: none; }
 img { max-width: 100%; height: auto; }
 
+.launch-splash {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(circle at center, rgba(10, 12, 12, 0.92), rgba(5, 5, 5, 0.98));
+    color: var(--text);
+    transition: opacity 0.7s ease, visibility 0.7s ease;
+}
+
+.launch-splash.is-hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.launch-splash-inner {
+    text-align: center;
+    padding: 40px 28px;
+    border: 1px solid var(--border-soft);
+    border-radius: 28px;
+    background: rgba(10, 16, 12, 0.55);
+    box-shadow: 0 28px 60px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(10px);
+    max-width: 620px;
+    width: min(90vw, 620px);
+}
+
+.launch-splash-kicker,
+.welcome-kicker {
+    display: inline-block;
+    margin-bottom: 16px;
+    padding: 8px 18px;
+    border-radius: 999px;
+    background: rgba(var(--primary-rgb), 0.14);
+    border: 1px solid rgba(var(--primary-rgb), 0.35);
+    color: var(--primary);
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    font-size: 0.72rem;
+    font-weight: 700;
+}
+
+.launch-splash h1,
+.welcome-signup-panel h1 {
+    margin: 0;
+    font-size: clamp(2.6rem, 7vw, 5.5rem);
+    line-height: 0.92;
+    letter-spacing: -0.06em;
+    color: var(--heading);
+}
+
+.launch-splash p,
+.welcome-signup-panel p {
+    margin: 18px 0 0;
+    color: var(--muted);
+    font-size: 1.1rem;
+}
+
+.welcome-page-shell {
+    min-height: 80vh;
+    display: grid;
+    place-items: center;
+    padding: 60px 20px;
+    background: var(--bg);
+}
+
+.welcome-signup-panel {
+    width: min(760px, 100%);
+    padding: 40px 28px;
+    border-radius: 28px;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    box-shadow: var(--shadow);
+    text-align: center;
+}
+
+.welcome-subtitle,
+.welcome-copy {
+    max-width: 620px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.welcome-signup-form {
+    margin-top: 28px;
+    display: grid;
+    gap: 18px;
+    text-align: left;
+}
+
+.welcome-field {
+    display: grid;
+    gap: 8px;
+}
+
+.welcome-field label {
+    color: var(--heading);
+    font-weight: 600;
+}
+
+.welcome-field input {
+    width: 100%;
+    background: var(--panel-input-bg);
+    border: 1px solid var(--panel-input-border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    color: var(--heading);
+    font: inherit;
+}
+
+.welcome-field input::placeholder {
+    color: var(--muted);
+}
+
+.welcome-signup-form .btn {
+    width: 100%;
+}
+
+.welcome-footnote {
+    margin-top: 18px;
+    font-size: 0.9rem;
+    color: var(--muted);
+    font-style: italic;
+}
+
+.welcome-success,
+.welcome-error {
+    margin-top: 18px;
+    border-radius: 12px;
+    padding: 14px 16px;
+    font-weight: 600;
+}
+
+.welcome-success {
+    background: rgba(var(--primary-rgb), 0.12);
+    border: 1px solid rgba(var(--primary-rgb), 0.28);
+    color: var(--heading);
+}
+
+.welcome-error {
+    background: rgba(255, 120, 120, 0.08);
+    border: 1px solid rgba(255, 120, 120, 0.2);
+    color: var(--text);
+}
+
 .site-header {
     position: sticky;
     top: 0;

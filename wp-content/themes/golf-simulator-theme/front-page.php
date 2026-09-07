@@ -8,7 +8,7 @@
             'heading' => get_theme_mod('golf_simulator_slide_1_heading', 'Grand Opening TBD'),
             'text' => get_theme_mod('golf_simulator_slide_1_text', 'We are preparing something special for golfers in the area. Check back soon for updates, launch dates, and opening details.'),
             'button_text' => get_theme_mod('golf_simulator_slide_1_button_1', 'Stay Tuned'),
-            'button_url' => get_theme_mod('golf_simulator_slide_1_button_1_url', home_url('/')),
+            'button_url' => get_theme_mod('golf_simulator_slide_1_button_1_url', home_url('/welcome')),
         ),
         array(
             'image' => get_theme_mod('golf_simulator_slide_2_image', 'https://images.unsplash.com/photo-1593111774278-0b6b02b7961c?auto=format&fit=crop&w=1600&q=80'),
