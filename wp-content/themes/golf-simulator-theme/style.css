@@ -716,6 +716,9 @@ img { max-width: 100%; height: auto; }
 .section {
     padding: 72px 0;
 }
+.section-heading {
+    margin-bottom: 26px;
+}
 .section-title {
     font-size: 2rem;
     margin: 0 0 12px;
@@ -743,6 +746,112 @@ img { max-width: 100%; height: auto; }
 .price {
     font-size: 2rem;
     font-weight: 800;
+}
+.membership-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 24px;
+}
+.membership-card {
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: 22px;
+    padding: 26px 24px;
+    box-shadow: var(--shadow);
+}
+.membership-card.featured {
+    background: linear-gradient(180deg, rgba(var(--primary-rgb), 0.12), rgba(255, 255, 255, 0.02));
+    border-color: rgba(var(--primary-rgb), 0.5);
+    transform: translateY(-4px);
+}
+.tier-badge {
+    display: inline-block;
+    width: fit-content;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: rgba(var(--primary-rgb), 0.12);
+    border: 1px solid rgba(var(--primary-rgb), 0.35);
+    color: var(--primary);
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+}
+.membership-card h3 {
+    margin: 18px 0 10px;
+    font-size: 2rem;
+    letter-spacing: -0.04em;
+    color: var(--heading);
+}
+.membership-price {
+    font-size: 1.3rem;
+    font-weight: 800;
+    color: var(--heading);
+    line-height: 1.3;
+    margin-bottom: 18px;
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+}
+.membership-regular-price,
+.membership-discount-price {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    font-size: 1.05rem;
+    line-height: 1.2;
+}
+.membership-regular-price {
+    color: var(--muted);
+    text-decoration: line-through;
+    text-decoration-thickness: 2px;
+}
+.membership-regular-price span,
+.membership-discount-price {
+    color: var(--heading);
+}
+.membership-discount-price {
+    color: var(--primary);
+    font-weight: 800;
+}
+.membership-card ul {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 22px;
+    display: grid;
+    gap: 10px;
+    color: var(--text);
+}
+.membership-card li {
+    position: relative;
+    padding-left: 18px;
+    color: var(--muted);
+}
+.membership-card li::before {
+    content: "•";
+    position: absolute;
+    left: 0;
+    color: var(--primary);
+    font-weight: 900;
+}
+.membership-card .btn {
+    margin-top: auto;
+    width: 100%;
+    text-align: center;
+}
+.membership-page-shell {
+    padding: 50px 0 70px;
+}
+.section-heading-center {
+    text-align: center;
+}
+@media (max-width: 980px) {
+    .membership-grid {
+        grid-template-columns: 1fr;
+    }
 }
 .site-footer {
     background: var(--footer-bg);

@@ -12,6 +12,8 @@ function golf_simulator_theme_setup() {
 }
 add_action('after_setup_theme', 'golf_simulator_theme_setup');
 
+require_once get_template_directory() . '/inc/membership.php';
+
 function golf_simulator_theme_render_launch_screen() {
     $template = get_template_directory() . '/page-splash.php';
     if (!file_exists($template)) {
@@ -58,6 +60,141 @@ function golf_simulator_theme_create_welcome_table() {
     dbDelta($sms_sql);
 }
 add_action('init', 'golf_simulator_theme_create_welcome_table');
+
+function golf_simulator_theme_create_membership_table() {
+    global $wpdb;
+
+    $table_name = $wpdb->prefix . 'user_memberships';
+    $charset_collate = $wpdb->get_charset_collate();
+
+    $sql = "CREATE TABLE IF NOT EXISTS $table_name (
+        id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+        user_id bigint(20) unsigned NOT NULL,
+        package_name varchar(100) NOT NULL DEFAULT '',
+        package_slug varchar(100) NOT NULL DEFAULT '',
+        price varchar(50) DEFAULT '',
+        discount_price varchar(50) DEFAULT '',
+        payment_status varchar(30) NOT NULL DEFAULT 'pending',
+        status varchar(30) NOT NULL DEFAULT 'pending',
+        payment_date datetime NULL,
+        next_billing_date datetime NULL,
+        start_date datetime NULL,
+        cancel_date datetime NULL,
+        created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY user_id (user_id),
+        KEY package_name (package_name),
+        KEY status (status)
+    ) $charset_collate;";
+
+    require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+    dbDelta($sql);
+}
+add_action('init', 'golf_simulator_theme_create_membership_table');
+
+function golf_simulator_theme_get_user_membership_record($user_id) {
+    global $wpdb;
+
+    $table_name = $wpdb->prefix . 'user_memberships';
+
+    return $wpdb->get_row(
+        $wpdb->prepare("SELECT * FROM $table_name WHERE user_id = %d ORDER BY id DESC LIMIT 1", absint($user_id))
+    );
+}
+
+function golf_simulator_theme_save_user_membership_record($args = array()) {
+    global $wpdb;
+
+    $table_name = $wpdb->prefix . 'user_memberships';
+    $defaults = array(
+        'user_id' => 0,
+        'package_name' => '',
+        'package_slug' => '',
+        'price' => '',
+        'discount_price' => '',
+        'payment_status' => 'pending',
+        'status' => 'pending',
+        'payment_date' => '',
+        'next_billing_date' => '',
+        'start_date' => '',
+        'cancel_date' => '',
+    );
+
+    $data = wp_parse_args($args, $defaults);
+
+    $user_id = absint($data['user_id']);
+    if (empty($user_id)) {
+        return false;
+    }
+
+    $package_name = sanitize_text_field($data['package_name']);
+    $package_slug = sanitize_title($data['package_slug'] ?: $package_name);
+    $status = in_array($data['status'], array('active', 'pending', 'cancelled', 'paused', 'upgraded', 'downgraded'), true) ? $data['status'] : 'pending';
+    $payment_status = in_array($data['payment_status'], array('paid', 'pending', 'failed', 'cancelled'), true) ? $data['payment_status'] : 'pending';
+    $payment_date = !empty($data['payment_date']) ? $data['payment_date'] : current_time('mysql');
+    $start_date = !empty($data['start_date']) ? $data['start_date'] : current_time('mysql');
+    $next_billing_date = !empty($data['next_billing_date']) ? $data['next_billing_date'] : '';
+    $cancel_date = !empty($data['cancel_date']) ? $data['cancel_date'] : '';
+
+    $record = array(
+        'user_id' => $user_id,
+        'package_name' => $package_name,
+        'package_slug' => $package_slug,
+        'price' => sanitize_text_field($data['price']),
+        'discount_price' => sanitize_text_field($data['discount_price']),
+        'payment_status' => $payment_status,
+        'status' => $status,
+        'payment_date' => $payment_date,
+        'next_billing_date' => $next_billing_date,
+        'start_date' => $start_date,
+        'cancel_date' => $cancel_date,
+        'updated_at' => current_time('mysql'),
+    );
+
+    $existing = $wpdb->get_row(
+        $wpdb->prepare("SELECT * FROM $table_name WHERE user_id = %d ORDER BY id DESC LIMIT 1", $user_id)
+    );
+
+    if ($existing) {
+        $wpdb->update(
+            $table_name,
+            $record,
+            array('id' => $existing->id),
+            array('%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s'),
+            array('%d')
+        );
+
+        return $existing->id;
+    }
+
+    $wpdb->insert(
+        $table_name,
+        $record,
+        array('%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s')
+    );
+
+    return $wpdb->insert_id;
+}
+
+function golf_simulator_theme_update_member_membership_status($user_id, $package_name, $status, $payment_status = 'paid', $payment_date = null, $next_billing_date = null, $cancel_date = null) {
+    $package_data = golf_simulator_theme_get_default_membership_packages();
+    $package = $package_data[$package_name] ?? array();
+
+    return golf_simulator_theme_save_user_membership_record(array(
+        'user_id' => $user_id,
+        'package_name' => $package_name,
+        'package_slug' => $package_name,
+        'price' => $package['price'] ?? '',
+        'discount_price' => $package['discount_price'] ?? '',
+        'payment_status' => $payment_status,
+        'status' => $status,
+        'payment_date' => $payment_date ? $payment_date : current_time('mysql'),
+        'next_billing_date' => $next_billing_date ?: '',
+        'cancel_date' => $cancel_date ?: '',
+        'start_date' => current_time('mysql'),
+    ));
+}
 
 function golf_simulator_theme_send_welcome_email($email, $full_name = '') {
     if (empty($email) || !is_email($email)) {
