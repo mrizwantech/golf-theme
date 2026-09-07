@@ -1,5 +1,140 @@
 <?php
 
+function golf_simulator_theme_create_membership_table() {
+    global $wpdb;
+
+    $table_name = $wpdb->prefix . 'user_memberships';
+    $charset_collate = $wpdb->get_charset_collate();
+
+    $sql = "CREATE TABLE IF NOT EXISTS $table_name (
+        id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+        user_id bigint(20) unsigned NOT NULL,
+        package_name varchar(100) NOT NULL DEFAULT '',
+        package_slug varchar(100) NOT NULL DEFAULT '',
+        price varchar(50) DEFAULT '',
+        discount_price varchar(50) DEFAULT '',
+        payment_status varchar(30) NOT NULL DEFAULT 'pending',
+        status varchar(30) NOT NULL DEFAULT 'pending',
+        payment_date datetime NULL,
+        next_billing_date datetime NULL,
+        start_date datetime NULL,
+        cancel_date datetime NULL,
+        created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY user_id (user_id),
+        KEY package_name (package_name),
+        KEY status (status)
+    ) $charset_collate;";
+
+    require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+    dbDelta($sql);
+}
+add_action('init', 'golf_simulator_theme_create_membership_table');
+
+function golf_simulator_theme_get_user_membership_record($user_id) {
+    global $wpdb;
+
+    $table_name = $wpdb->prefix . 'user_memberships';
+
+    return $wpdb->get_row(
+        $wpdb->prepare("SELECT * FROM $table_name WHERE user_id = %d ORDER BY id DESC LIMIT 1", absint($user_id))
+    );
+}
+
+function golf_simulator_theme_save_user_membership_record($args = array()) {
+    global $wpdb;
+
+    $table_name = $wpdb->prefix . 'user_memberships';
+    $defaults = array(
+        'user_id' => 0,
+        'package_name' => '',
+        'package_slug' => '',
+        'price' => '',
+        'discount_price' => '',
+        'payment_status' => 'pending',
+        'status' => 'pending',
+        'payment_date' => '',
+        'next_billing_date' => '',
+        'start_date' => '',
+        'cancel_date' => '',
+    );
+
+    $data = wp_parse_args($args, $defaults);
+
+    $user_id = absint($data['user_id']);
+    if (empty($user_id)) {
+        return false;
+    }
+
+    $package_name = sanitize_text_field($data['package_name']);
+    $package_slug = sanitize_title($data['package_slug'] ?: $package_name);
+    $status = in_array($data['status'], array('active', 'pending', 'cancelled', 'paused', 'upgraded', 'downgraded'), true) ? $data['status'] : 'pending';
+    $payment_status = in_array($data['payment_status'], array('paid', 'pending', 'failed', 'cancelled'), true) ? $data['payment_status'] : 'pending';
+    $payment_date = !empty($data['payment_date']) ? $data['payment_date'] : current_time('mysql');
+    $start_date = !empty($data['start_date']) ? $data['start_date'] : current_time('mysql');
+    $next_billing_date = !empty($data['next_billing_date']) ? $data['next_billing_date'] : '';
+    $cancel_date = !empty($data['cancel_date']) ? $data['cancel_date'] : '';
+
+    $record = array(
+        'user_id' => $user_id,
+        'package_name' => $package_name,
+        'package_slug' => $package_slug,
+        'price' => sanitize_text_field($data['price']),
+        'discount_price' => sanitize_text_field($data['discount_price']),
+        'payment_status' => $payment_status,
+        'status' => $status,
+        'payment_date' => $payment_date,
+        'next_billing_date' => $next_billing_date,
+        'start_date' => $start_date,
+        'cancel_date' => $cancel_date,
+        'updated_at' => current_time('mysql'),
+    );
+
+    $existing = $wpdb->get_row(
+        $wpdb->prepare("SELECT * FROM $table_name WHERE user_id = %d ORDER BY id DESC LIMIT 1", $user_id)
+    );
+
+    if ($existing) {
+        $wpdb->update(
+            $table_name,
+            $record,
+            array('id' => $existing->id),
+            array('%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s'),
+            array('%d')
+        );
+
+        return $existing->id;
+    }
+
+    $wpdb->insert(
+        $table_name,
+        $record,
+        array('%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s')
+    );
+
+    return $wpdb->insert_id;
+}
+
+function golf_simulator_theme_update_member_membership_status($user_id, $package_name, $status, $payment_status = 'paid', $payment_date = null, $next_billing_date = null, $cancel_date = null) {
+    $package_data = golf_simulator_theme_get_default_membership_packages();
+    $package = $package_data[$package_name] ?? array();
+
+    return golf_simulator_theme_save_user_membership_record(array(
+        'user_id' => $user_id,
+        'package_name' => $package_name,
+        'package_slug' => $package_name,
+        'price' => $package['price'] ?? '',
+        'discount_price' => $package['discount_price'] ?? '',
+        'payment_status' => $payment_status,
+        'status' => $status,
+        'payment_date' => $payment_date ? $payment_date : current_time('mysql'),
+        'next_billing_date' => $next_billing_date ?: '',
+        'cancel_date' => $cancel_date ?: '',
+        'start_date' => current_time('mysql'),
+    ));
+}
+
 function golf_simulator_theme_register_membership_package_post_type() {
     register_post_type('membership_package', array(
         'labels' => array(
@@ -125,10 +260,27 @@ function golf_simulator_theme_save_membership_package_defaults() {
     $saved = array();
 
     foreach ($templates as $package_key => $template) {
+        $price = isset($_POST['golf_simulator_membership_defaults'][$package_key]['price']) ? sanitize_text_field(wp_unslash($_POST['golf_simulator_membership_defaults'][$package_key]['price'])) : $template['price'];
+        $discount_price = isset($_POST['golf_simulator_membership_defaults'][$package_key]['discount_price']) ? sanitize_text_field(wp_unslash($_POST['golf_simulator_membership_defaults'][$package_key]['discount_price'])) : $template['discount_price'];
+        $price_error = golf_simulator_theme_validate_membership_prices($price, $discount_price);
+
+        if (is_wp_error($price_error)) {
+            $redirect = add_query_arg(
+                array(
+                    'page' => 'membership-package-settings',
+                    'membership_error' => $price_error->get_error_message(),
+                ),
+                admin_url('admin.php')
+            );
+
+            wp_safe_redirect($redirect);
+            exit;
+        }
+
         $saved[$package_key] = array(
             'title' => isset($_POST['golf_simulator_membership_defaults'][$package_key]['title']) ? sanitize_text_field(wp_unslash($_POST['golf_simulator_membership_defaults'][$package_key]['title'])) : $template['title'],
-            'price' => isset($_POST['golf_simulator_membership_defaults'][$package_key]['price']) ? sanitize_text_field(wp_unslash($_POST['golf_simulator_membership_defaults'][$package_key]['price'])) : $template['price'],
-            'discount_price' => isset($_POST['golf_simulator_membership_defaults'][$package_key]['discount_price']) ? sanitize_text_field(wp_unslash($_POST['golf_simulator_membership_defaults'][$package_key]['discount_price'])) : $template['discount_price'],
+            'price' => $price,
+            'discount_price' => $discount_price,
             'billing' => isset($_POST['golf_simulator_membership_defaults'][$package_key]['billing']) ? sanitize_text_field(wp_unslash($_POST['golf_simulator_membership_defaults'][$package_key]['billing'])) : $template['billing'],
             'featured' => !empty($_POST['golf_simulator_membership_defaults'][$package_key]['featured']) ? true : false,
             'features' => isset($_POST['golf_simulator_membership_defaults'][$package_key]['features']) ? wp_unslash($_POST['golf_simulator_membership_defaults'][$package_key]['features']) : implode("\n", $template['features']),
@@ -137,13 +289,32 @@ function golf_simulator_theme_save_membership_package_defaults() {
 
     update_option('golf_simulator_membership_package_defaults', $saved);
 
+    foreach ($saved as $package) {
+        $package_posts = get_posts(array(
+            'post_type' => 'membership_package',
+            'post_status' => 'any',
+            'posts_per_page' => -1,
+            'suppress_filters' => false,
+        ));
+
+        foreach ($package_posts as $package_post) {
+            if (sanitize_title($package_post->post_title) !== sanitize_title($package['title'])) {
+                continue;
+            }
+
+            update_post_meta($package_post->ID, '_membership_price', $package['price']);
+            update_post_meta($package_post->ID, '_membership_discount_price', $package['discount_price']);
+            update_post_meta($package_post->ID, '_membership_billing', $package['billing']);
+            update_post_meta($package_post->ID, '_membership_featured', $package['featured'] ? '1' : '0');
+            update_post_meta($package_post->ID, '_membership_features', $package['features']);
+        }
+    }
+
     $redirect = add_query_arg(
         array(
-            'post_type' => 'membership_package',
-            'page' => 'membership-package-settings',
             'updated' => '1',
         ),
-        admin_url('edit.php')
+        admin_url('admin.php?page=membership-package-settings')
     );
 
     wp_safe_redirect($redirect);
@@ -171,7 +342,9 @@ function golf_simulator_theme_membership_package_settings_page() {
             </a>
         </div>
 
-        <?php if (isset($_GET['updated']) && '1' === $_GET['updated']) : ?>
+        <?php if (isset($_GET['membership_error']) && $_GET['membership_error']) : ?>
+            <div class="notice notice-error is-dismissible"><p><?php echo esc_html(wp_unslash($_GET['membership_error'])); ?></p></div>
+        <?php elseif (isset($_GET['updated']) && '1' === $_GET['updated']) : ?>
             <div class="notice notice-success is-dismissible"><p><?php esc_html_e('Membership package defaults were updated.', 'golf-simulator-theme'); ?></p></div>
         <?php endif; ?>
 
@@ -375,6 +548,24 @@ function golf_simulator_theme_get_default_membership_packages() {
     return $defaults;
 }
 
+function golf_simulator_theme_validate_membership_prices($regular_price, $discount_price) {
+    $regular_price = trim((string) $regular_price);
+    $discount_price = trim((string) $discount_price);
+
+    if ('' === $discount_price) {
+        return true;
+    }
+
+    if (!is_numeric($regular_price) || !is_numeric($discount_price) || (float) $discount_price >= (float) $regular_price) {
+        return new WP_Error(
+            'invalid_membership_discount',
+            __('The discounted price must be less than the regular price.', 'golf-simulator-theme')
+        );
+    }
+
+    return true;
+}
+
 function golf_simulator_theme_ensure_default_membership_packages() {
     if (!post_type_exists('membership_package')) {
         return;
@@ -421,23 +612,23 @@ function golf_simulator_theme_ensure_default_membership_packages() {
             $existing_featured = get_post_meta($post_id, '_membership_featured', true);
             $existing_features = get_post_meta($post_id, '_membership_features', true);
 
-            if ('' === $existing_price || false === $existing_price) {
+            if (!metadata_exists('post', $post_id, '_membership_price')) {
                 update_post_meta($post_id, '_membership_price', $package['price']);
             }
 
-            if ('' === $existing_discount || false === $existing_discount) {
+            if (!metadata_exists('post', $post_id, '_membership_discount_price')) {
                 update_post_meta($post_id, '_membership_discount_price', $package['discount_price']);
             }
 
-            if ('' === $existing_billing || false === $existing_billing) {
+            if (!metadata_exists('post', $post_id, '_membership_billing')) {
                 update_post_meta($post_id, '_membership_billing', $package['billing']);
             }
 
-            if ('' === $existing_featured || false === $existing_featured) {
+            if (!metadata_exists('post', $post_id, '_membership_featured')) {
                 update_post_meta($post_id, '_membership_featured', $package['featured'] ? '1' : '0');
             }
 
-            if ('' === $existing_features || false === $existing_features) {
+            if (!metadata_exists('post', $post_id, '_membership_features')) {
                 update_post_meta($post_id, '_membership_features', implode("\n", $package['features']));
             }
         }
@@ -455,10 +646,16 @@ function golf_simulator_theme_membership_price_markup($post_id) {
     $default_package = $defaults[$title] ?? array();
 
     $regular_price_value = !empty($regular_price) ? '$' . esc_html($regular_price) : (isset($default_package['price']) ? '$' . esc_html($default_package['price']) : '$0');
-    $discount_price_value = !empty($discount_price) ? '$' . esc_html($discount_price) : (isset($default_package['discount_price']) ? '$' . esc_html($default_package['discount_price']) : '');
+    $default_discount = isset($default_package['discount_price']) ? trim((string) $default_package['discount_price']) : null;
+
+    if ('' === $default_discount) {
+        $discount_price = '';
+    }
+
+    $discount_price_value = !empty($discount_price) ? '$' . esc_html($discount_price) : (metadata_exists('post', $post_id, '_membership_discount_price') ? '' : (!empty($default_discount) ? '$' . esc_html($default_discount) : ''));
 
     if (empty($discount_price_value)) {
-        return '<div class="membership-price"><span class="membership-regular-price"><s>' . esc_html($regular_price_value) . '</s><span>' . esc_html($billing) . '</span></span></div>';
+        return '<div class="membership-price"><span class="membership-regular-price">' . esc_html($regular_price_value) . '<span>' . esc_html($billing) . '</span></span></div>';
     }
 
     return '<div class="membership-price"><span class="membership-regular-price"><s>' . esc_html($regular_price_value) . '</s><span>' . esc_html($billing) . '</span></span><span class="membership-discount-price">Early signup ' . esc_html($discount_price_value) . '</span></div>';
@@ -486,6 +683,7 @@ function golf_simulator_theme_render_membership_package_meta_box($post) {
     $features = get_post_meta($post->ID, '_membership_features', true);
     $defaults = golf_simulator_theme_get_default_membership_packages();
     $default_package = $defaults[get_the_title($post->ID)] ?? array();
+    $has_discount_meta = metadata_exists('post', $post->ID, '_membership_discount_price');
     ?>
     <div class="membership-package-admin-box">
         <div class="membership-package-admin-grid">
@@ -499,7 +697,7 @@ function golf_simulator_theme_render_membership_package_meta_box($post) {
             </div>
             <div class="membership-package-admin-field">
                 <label for="membership_discount_price"><strong><?php esc_html_e('Discounted Price', 'golf-simulator-theme'); ?></strong></label>
-                <input type="text" id="membership_discount_price" name="membership_discount_price" value="<?php echo esc_attr($discount_price !== '' ? $discount_price : ($default_package['discount_price'] ?? '')); ?>" placeholder="200" />
+                <input type="text" id="membership_discount_price" name="membership_discount_price" value="<?php echo esc_attr($has_discount_meta ? $discount_price : ($default_package['discount_price'] ?? '')); ?>" placeholder="200" />
             </div>
         </div>
         <div class="membership-package-admin-field">
@@ -524,6 +722,10 @@ function golf_simulator_theme_save_membership_package_meta($post_id) {
         return;
     }
 
+    if (wp_is_post_revision($post_id) || !current_user_can('edit_post', $post_id)) {
+        return;
+    }
+
     if (isset($_POST['reset_membership_defaults']) && '1' === $_POST['reset_membership_defaults']) {
         $defaults = golf_simulator_theme_get_default_membership_packages();
         $title = get_the_title($post_id);
@@ -539,12 +741,20 @@ function golf_simulator_theme_save_membership_package_meta($post_id) {
         return;
     }
 
+    $regular_price = isset($_POST['membership_price']) ? sanitize_text_field(wp_unslash($_POST['membership_price'])) : '';
+    $discount_price = isset($_POST['membership_discount_price']) ? sanitize_text_field(wp_unslash($_POST['membership_discount_price'])) : '';
+    $price_error = golf_simulator_theme_validate_membership_prices($regular_price, $discount_price);
+
+    if (is_wp_error($price_error)) {
+        wp_die(esc_html($price_error->get_error_message()), esc_html__('Invalid membership price', 'golf-simulator-theme'), array('back_link' => true));
+    }
+
     if (isset($_POST['membership_price'])) {
-        update_post_meta($post_id, '_membership_price', sanitize_text_field(wp_unslash($_POST['membership_price'])));
+        update_post_meta($post_id, '_membership_price', $regular_price);
     }
 
     if (isset($_POST['membership_discount_price'])) {
-        update_post_meta($post_id, '_membership_discount_price', sanitize_text_field(wp_unslash($_POST['membership_discount_price'])));
+        update_post_meta($post_id, '_membership_discount_price', $discount_price);
     }
 
     if (isset($_POST['membership_billing'])) {
@@ -570,6 +780,7 @@ function golf_simulator_theme_get_membership_package_data($post_id) {
     $billing = get_post_meta($post_id, '_membership_billing', true);
     $featured = (bool) get_post_meta($post_id, '_membership_featured', true);
     $features = get_post_meta($post_id, '_membership_features', true);
+    $has_discount_meta = metadata_exists('post', $post_id, '_membership_discount_price');
 
     if (empty($features)) {
         $features = $default_package['features'] ?? array();
@@ -580,8 +791,8 @@ function golf_simulator_theme_get_membership_package_data($post_id) {
 
     return array(
         'title' => $title,
-        'price' => $price !== '' && $price !== false ? $price : ($default_package['price'] ?? '0'),
-        'discount_price' => $discount_price !== '' && $discount_price !== false ? $discount_price : ($default_package['discount_price'] ?? ''),
+        'price' => metadata_exists('post', $post_id, '_membership_price') ? $price : ($default_package['price'] ?? '0'),
+        'discount_price' => $has_discount_meta ? $discount_price : ($default_package['discount_price'] ?? ''),
         'billing' => $billing !== '' && $billing !== false ? $billing : ($default_package['billing'] ?? '/mo'),
         'featured' => $featured || ($default_package['featured'] ?? false),
         'features' => $features,
@@ -718,6 +929,141 @@ function golf_simulator_theme_process_membership_management() {
 }
 add_action('admin_post_golf_simulator_membership_manage', 'golf_simulator_theme_process_membership_management');
 
+function golf_simulator_theme_process_membership_signup() {
+    if (!isset($_POST['golf_simulator_membership_signup_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['golf_simulator_membership_signup_nonce'])), 'golf_simulator_membership_signup')) {
+        wp_die(__('Security check failed. Please refresh the page and try again.', 'golf-simulator-theme'));
+    }
+
+    $package_name = sanitize_text_field(wp_unslash($_POST['package_name'] ?? ''));
+    $name = sanitize_text_field(wp_unslash($_POST['name'] ?? ''));
+    $email = sanitize_email(wp_unslash($_POST['email'] ?? ''));
+    $password = (string) ($_POST['password'] ?? '');
+    $stripe_token = sanitize_text_field(wp_unslash($_POST['stripeToken'] ?? ''));
+    $packages = golf_simulator_theme_get_default_membership_packages();
+    $package = $packages[$package_name] ?? null;
+
+    if (!$package || !$name || !is_email($email) || !$stripe_token) {
+        wp_die(__('Please complete your name, email, password, membership tier, and card details.', 'golf-simulator-theme'));
+    }
+
+    if (!is_user_logged_in()) {
+        if (strlen($password) < 6) {
+            wp_die(__('Please use a password with at least 6 characters.', 'golf-simulator-theme'));
+        }
+
+        $existing_user = get_user_by('email', $email);
+        if ($existing_user) {
+            wp_die(__('An account with this email already exists. Please log in before joining a membership.', 'golf-simulator-theme'));
+        }
+
+        $user_id = wp_insert_user(array(
+            'user_login' => golf_simulator_theme_generate_unique_username($email),
+            'user_email' => $email,
+            'user_pass' => $password,
+            'display_name' => $name,
+            'first_name' => $name,
+            'role' => 'subscriber',
+        ));
+
+        if (is_wp_error($user_id)) {
+            wp_die(__('We could not create your account. Please try again.', 'golf-simulator-theme'));
+        }
+
+        wp_set_current_user($user_id);
+        wp_set_auth_cookie($user_id, true);
+    } else {
+        $user_id = get_current_user_id();
+    }
+
+    $price = !empty($package['discount_price']) ? $package['discount_price'] : $package['price'];
+    golf_simulator_theme_save_user_membership_record(array(
+        'user_id' => $user_id,
+        'package_name' => $package_name,
+        'package_slug' => sanitize_title($package_name),
+        'price' => $package['price'],
+        'discount_price' => $package['discount_price'],
+        'payment_status' => 'pending',
+        'status' => 'pending',
+        'payment_date' => current_time('mysql'),
+        'start_date' => current_time('mysql'),
+    ));
+
+    update_user_meta($user_id, '_membership_stripe_token', $stripe_token);
+    update_user_meta($user_id, '_membership_payment_amount', sanitize_text_field($price));
+
+    wp_safe_redirect(add_query_arg('membership_joined', '1', home_url('/my-account/')));
+    exit;
+}
+add_action('admin_post_golf_simulator_membership_signup', 'golf_simulator_theme_process_membership_signup');
+add_action('admin_post_nopriv_golf_simulator_membership_signup', 'golf_simulator_theme_process_membership_signup');
+
+function golf_simulator_theme_render_membership_signup($package_name) {
+    $packages = golf_simulator_theme_get_default_membership_packages();
+    $package = $packages[$package_name] ?? null;
+
+    if (!$package) {
+        return '<p>' . esc_html__('That membership package is not available. Please choose another package.', 'golf-simulator-theme') . '</p>';
+    }
+
+    $price = !empty($package['discount_price']) ? $package['discount_price'] : $package['price'];
+    ob_start();
+    ?>
+    <article class="entry-content membership-signup-card">
+        <div class="kicker">Membership Signup</div>
+        <h1>Join <?php echo esc_html($package['title']); ?></h1>
+        <p class="membership-signup-summary">Your tier: <strong><?php echo esc_html($package['title']); ?></strong> · <strong>$<?php echo esc_html($price); ?></strong><?php echo esc_html($package['billing']); ?></p>
+
+        <form id="membership-signup-form" method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+            <input type="hidden" name="action" value="golf_simulator_membership_signup">
+            <input type="hidden" name="package_name" value="<?php echo esc_attr($package_name); ?>">
+            <input type="hidden" name="stripeToken" id="membership-stripe-token">
+            <?php wp_nonce_field('golf_simulator_membership_signup', 'golf_simulator_membership_signup_nonce'); ?>
+            <div class="form-grid">
+                <label class="full-width">Full Name<input type="text" name="name" autocomplete="name" required></label>
+                <label class="full-width">Email Address<input type="email" name="email" autocomplete="email" required></label>
+                <?php if (!is_user_logged_in()) : ?>
+                    <label class="full-width">Password<input type="password" name="password" minlength="6" autocomplete="new-password" required></label>
+                <?php else : ?>
+                    <p class="full-width">You are joining this membership with your current account.</p>
+                    <input type="hidden" name="password" value="logged-in-account">
+                <?php endif; ?>
+                <label class="full-width"><strong>Card Details</strong></label>
+                <div class="full-width stripe-card-element" id="membership-card-element"></div>
+                <div class="full-width" id="membership-card-errors" role="alert"></div>
+            </div>
+            <button class="btn btn-primary" type="submit" id="membership-submit">Pay $<?php echo esc_html($price); ?> and Join <?php echo esc_html($package['title']); ?></button>
+        </form>
+    </article>
+    <script src="https://js.stripe.com/v3/"></script>
+    <script>
+    (function() {
+        var stripe = Stripe('pk_test_51TxKQ5GvsZrLG3yulrfaXb1jCaIIIcdEVZv28bF4ilRGFWW2gebxfWnuoJdXMGWzkEAgTU3yuPgniadk4UTIahHm00ZFuicsCP');
+        var elements = stripe.elements();
+        var card = elements.create('card');
+        card.mount('#membership-card-element');
+        var form = document.getElementById('membership-signup-form');
+        var submit = document.getElementById('membership-submit');
+        var errors = document.getElementById('membership-card-errors');
+        form.addEventListener('submit', function(event) {
+            event.preventDefault();
+            submit.disabled = true;
+            errors.textContent = '';
+            stripe.createToken(card).then(function(result) {
+                if (result.error) {
+                    errors.textContent = result.error.message;
+                    submit.disabled = false;
+                    return;
+                }
+                document.getElementById('membership-stripe-token').value = result.token.id;
+                form.submit();
+            });
+        });
+    })();
+    </script>
+    <?php
+    return ob_get_clean();
+}
+
 function golf_simulator_theme_render_membership_packages() {
     $packages = get_posts(array(
         'post_type' => 'membership_package',
@@ -748,7 +1094,7 @@ function golf_simulator_theme_render_membership_packages() {
     foreach ($packages as $package) {
         $data = golf_simulator_theme_get_membership_package_data($package->ID);
         $card_class = $data['featured'] ? 'membership-card featured' : 'membership-card';
-        $button_class = $data['featured'] ? 'btn btn-primary' : 'btn btn-secondary';
+        $button_class = 'btn btn-primary';
 
         echo '<article class="' . esc_attr($card_class) . '">';
         echo '<div class="tier-badge">' . esc_html($data['title']) . '</div>';
