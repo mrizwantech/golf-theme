@@ -14,6 +14,8 @@ if (!is_user_logged_in()) {
 
 $current_user = wp_get_current_user();
 $user_email = $current_user->user_email;
+$membership = golf_simulator_theme_get_user_membership_record($current_user->ID);
+$upgrade_balance = get_user_meta($current_user->ID, '_membership_upgrade_balance', true);
 
 // Get user's bookings (CRUD: Read)
 $user_bookings = ttn_get_user_bookings($user_email);
@@ -75,6 +77,76 @@ if ($message) {
                 <p><?php echo esc_html($message['message']); ?></p>
             </div>
         <?php endif; ?>
+
+        <section class="account-membership-panel">
+            <h2>My Membership</h2>
+            <?php if ($membership) : ?>
+                <div class="account-membership-grid">
+                    <div>
+                        <span class="account-membership-label">Membership Tier</span>
+                        <strong><?php echo esc_html($membership->package_name); ?></strong>
+                    </div>
+                    <div>
+                        <span class="account-membership-label">Price</span>
+                        <strong>$<?php echo esc_html(!empty($membership->discount_price) ? $membership->discount_price : $membership->price); ?>/Month</strong>
+                    </div>
+                    <div>
+                        <span class="account-membership-label">Status</span>
+                        <strong><?php echo esc_html(ucfirst($membership->status)); ?></strong>
+                    </div>
+                    <div>
+                        <span class="account-membership-label">Payment</span>
+                        <strong><?php echo esc_html(ucfirst($membership->payment_status)); ?></strong>
+                    </div>
+                </div>
+                <?php if ('pending' === $membership->payment_status) : ?>
+                    <p class="account-membership-note">Your payment was submitted and is waiting for verification.</p>
+                <?php endif; ?>
+                <div class="account-membership-dates">
+                    <span><strong>Joined:</strong> <?php echo esc_html($membership->start_date ? mysql2date(get_option('date_format'), $membership->start_date) : 'Pending'); ?></span>
+                    <span><strong>Payment date:</strong> <?php echo esc_html($membership->payment_date ? mysql2date(get_option('date_format'), $membership->payment_date) : 'Pending'); ?></span>
+                    <span><strong>Next billing:</strong> <?php echo esc_html($membership->next_billing_date ? mysql2date(get_option('date_format'), $membership->next_billing_date) : 'To be confirmed'); ?></span>
+                </div>
+                <div class="account-membership-actions">
+                    <h3>Manage Membership</h3>
+                    <?php if ('' !== $upgrade_balance) : ?>
+                        <p class="account-membership-note">Next upgrade balance: <strong>$<?php echo esc_html($upgrade_balance); ?></strong>. Payment remains pending until the upgrade is verified.</p>
+                    <?php endif; ?>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                        <input type="hidden" name="action" value="golf_simulator_membership_manage">
+                        <input type="hidden" name="stripeToken" id="membership-upgrade-stripe-token">
+                        <?php wp_nonce_field('golf_simulator_membership_manage', 'golf_simulator_membership_nonce'); ?>
+                        <div class="account-membership-action-fields">
+                            <label>
+                                Membership tier
+                                <select name="membership_package">
+                                    <?php foreach (golf_simulator_theme_get_default_membership_packages() as $package_key => $package) : ?>
+                                        <option value="<?php echo esc_attr($package_key); ?>" <?php selected($membership->package_name, $package_key); ?>><?php echo esc_html($package['title']); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </label>
+                            <label>
+                                Action
+                                <select name="membership_action">
+                                    <option value="upgrade">Upgrade</option>
+                                    <option value="downgrade">Downgrade</option>
+                                    <option value="pause">Pause</option>
+                                    <option value="cancel">Cancel</option>
+                                </select>
+                            </label>
+                            <div class="membership-upgrade-payment">
+                                <span>Card for upgrade payment</span>
+                                <div class="stripe-card-element" id="membership-upgrade-card"></div>
+                                <small id="membership-upgrade-card-error" role="alert"></small>
+                            </div>
+                            <button type="submit" class="btn btn-primary">Update Membership</button>
+                        </div>
+                    </form>
+                </div>
+            <?php else : ?>
+                <p>You do not have a membership yet. <a href="<?php echo esc_url(home_url('/membership/')); ?>">View membership options</a></p>
+            <?php endif; ?>
+        </section>
 
         <?php if ($booking_to_edit) : ?>
         <div style="background: #f8f9fa; padding: 20px; margin-bottom: 20px; border-radius: 5px;">
@@ -193,6 +265,44 @@ if ($message) {
         </div>
     </article>
 </main>
+<script src="https://js.stripe.com/v3/"></script>
+<script>
+(function() {
+    var form = document.querySelector('.account-membership-actions form');
+    var cardContainer = document.getElementById('membership-upgrade-card');
+    if (!form || !cardContainer || typeof Stripe === 'undefined') {
+        return;
+    }
+
+    var stripe = Stripe('pk_test_51TxKQ5GvsZrLG3yulrfaXb1jCaIIIcdEVZv28bF4ilRGFWW2gebxfWnuoJdXMGWzkEAgTU3yuPgniadk4UTIahHm00ZFuicsCP');
+    var card = stripe.elements().create('card');
+    card.mount(cardContainer);
+    var action = form.querySelector('[name="membership_action"]');
+    var token = document.getElementById('membership-upgrade-stripe-token');
+    var error = document.getElementById('membership-upgrade-card-error');
+
+    form.addEventListener('submit', function(event) {
+        if (!action || action.value !== 'upgrade' || token.value) {
+            return;
+        }
+
+        event.preventDefault();
+        error.textContent = '';
+        var button = form.querySelector('button[type="submit"]');
+        button.disabled = true;
+        stripe.createToken(card).then(function(result) {
+            if (result.error) {
+                error.textContent = result.error.message;
+                button.disabled = false;
+                return;
+            }
+
+            token.value = result.token.id;
+            form.submit();
+        });
+    });
+})();
+</script>
 <style>
 .account-header {
     margin-bottom: 30px;
@@ -200,6 +310,115 @@ if ($message) {
 
 .account-header p {
     margin: 8px 0;
+}
+
+.account-membership-panel {
+    margin-bottom: 32px;
+    padding: 24px;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+}
+
+.account-membership-panel h2 {
+    margin-top: 0;
+}
+
+.account-membership-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 18px;
+}
+
+.account-membership-grid > div {
+    display: grid;
+    gap: 6px;
+}
+
+.account-membership-label {
+    color: var(--muted);
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.account-membership-note {
+    margin: 18px 0 0;
+    color: var(--muted);
+}
+
+.account-membership-dates {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px 24px;
+    margin-top: 18px;
+    color: var(--muted);
+    font-size: 0.92rem;
+}
+
+.account-membership-actions {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-soft);
+}
+
+.account-membership-actions h3 {
+    margin: 0 0 14px;
+}
+
+.account-membership-action-fields {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 14px;
+}
+
+.account-membership-action-fields label {
+    display: grid;
+    gap: 6px;
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.account-membership-action-fields select {
+    min-width: 170px;
+    padding: 11px 12px;
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+}
+
+.membership-upgrade-payment {
+    display: grid;
+    flex: 1 1 260px;
+    gap: 6px;
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.membership-upgrade-payment .stripe-card-element {
+    min-width: 240px;
+}
+
+#membership-upgrade-card-error {
+    color: #b42318;
+    font-weight: 600;
+}
+
+@media (max-width: 700px) {
+    .account-membership-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .account-membership-action-fields,
+    .account-membership-action-fields label,
+    .account-membership-action-fields select,
+    .account-membership-action-fields .btn {
+        width: 100%;
+    }
 }
 
 .bookings-table {

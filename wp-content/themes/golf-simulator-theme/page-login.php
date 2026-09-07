@@ -58,8 +58,8 @@ get_header();
                 <?php wp_nonce_field('ttn_user_login', 'ttn_login_nonce'); ?>
                 <div class="form-grid">
                     <label class="full-width">
-                        Email Address
-                        <input type="email" name="email" placeholder="you@example.com" autocomplete="email" required>
+                        Email Address or Username
+                        <input type="text" name="login_identifier" placeholder="you@example.com or admin" autocomplete="username" required>
                     </label>
                     <label class="full-width">
                         Password

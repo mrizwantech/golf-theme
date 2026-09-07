@@ -13,6 +13,7 @@ function golf_simulator_theme_setup() {
 add_action('after_setup_theme', 'golf_simulator_theme_setup');
 
 require_once get_template_directory() . '/inc/membership.php';
+require_once get_template_directory() . '/inc/auth.php';
 
 function golf_simulator_theme_render_launch_screen() {
     $template = get_template_directory() . '/page-splash.php';
@@ -663,111 +664,6 @@ function golf_simulator_theme_menu() {
     } else {
         echo '<nav class="site-nav"><ul><li><a href="' . esc_url(home_url('/')) . '">Home</a></li><li><a href="' . esc_url(home_url('/about-us/')) . '">About</a></li><li><a href="' . esc_url(home_url('/contact/')) . '">Contact</a></li></ul></nav>';
     }
-}
-
-/* ==========================================================================
-   Branded login / register
-   Replaces the default wp-login.php with an on-brand page (Template Name:
-   Account Access) and a matching set of admin-post handlers.
-   ========================================================================== */
-
-function golf_simulator_theme_get_login_url($redirect_to = '', $tab = 'login') {
-    $page = get_page_by_path('login');
-    $url = $page ? get_permalink($page) : home_url('/login/');
-
-    if ($tab === 'register') {
-        $url = add_query_arg('tab', 'register', $url);
-    }
-    if ($redirect_to) {
-        $url = add_query_arg('redirect_to', rawurlencode($redirect_to), $url);
-    }
-
-    return $url;
-}
-
-function golf_simulator_theme_generate_unique_username($email) {
-    $base = sanitize_user(current(explode('@', $email)), true);
-    if ($base === '') {
-        $base = 'golfer';
-    }
-
-    $username = $base;
-    $suffix = 1;
-    while (username_exists($username)) {
-        $suffix++;
-        $username = $base . $suffix;
-    }
-
-    return $username;
-}
-
-/**
- * Processes the login form on the same request/page (no redirect-based
- * messaging) so the result is never at the mercy of page caching or a
- * transient that failed to persist. Returns an error string, or redirects
- * and exits on success.
- */
-function golf_simulator_theme_process_login($redirect_to) {
-    if (!isset($_POST['ttn_login_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['ttn_login_nonce'])), 'ttn_user_login')) {
-        return __('Security check failed. Please refresh the page and try again.', 'golf-simulator-theme');
-    }
-
-    $email = sanitize_text_field(wp_unslash($_POST['email'] ?? ''));
-    $password = (string) ($_POST['password'] ?? '');
-
-    $user = wp_signon(array(
-        'user_login' => $email,
-        'user_password' => $password,
-        'remember' => true,
-    ), is_ssl());
-
-    if (is_wp_error($user)) {
-        return __('Incorrect email or password. Please try again.', 'golf-simulator-theme');
-    }
-
-    wp_safe_redirect($redirect_to);
-    exit;
-}
-
-/**
- * Processes the register form on the same request/page. See
- * golf_simulator_theme_process_login() for why this avoids redirects.
- */
-function golf_simulator_theme_process_register($redirect_to) {
-    if (!isset($_POST['ttn_register_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['ttn_register_nonce'])), 'ttn_user_register')) {
-        return __('Security check failed. Please refresh the page and try again.', 'golf-simulator-theme');
-    }
-
-    $name = sanitize_text_field(wp_unslash($_POST['ttn_name'] ?? ''));
-    $email = sanitize_email(wp_unslash($_POST['email'] ?? ''));
-    $password = (string) ($_POST['password'] ?? '');
-
-    if (!$name || !is_email($email) || strlen($password) < 6) {
-        return __('Please enter your name, a valid email, and a password of at least 6 characters.', 'golf-simulator-theme');
-    }
-
-    if (email_exists($email)) {
-        return __('An account with that email already exists. Please log in instead.', 'golf-simulator-theme');
-    }
-
-    $user_id = wp_insert_user(array(
-        'user_login' => golf_simulator_theme_generate_unique_username($email),
-        'user_email' => $email,
-        'user_pass' => $password,
-        'display_name' => $name,
-        'first_name' => $name,
-        'role' => 'subscriber',
-    ));
-
-    if (is_wp_error($user_id)) {
-        return __('We could not create your account. Please try again.', 'golf-simulator-theme');
-    }
-
-    wp_set_current_user($user_id);
-    wp_set_auth_cookie($user_id, true);
-
-    wp_safe_redirect($redirect_to);
-    exit;
 }
 
 

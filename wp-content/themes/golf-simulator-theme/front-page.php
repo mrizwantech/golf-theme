@@ -41,6 +41,9 @@
                                 <p><?php echo esc_html($slide['text']); ?></p>
                                 <div class="hero-actions">
                                     <a class="btn btn-primary" href="<?php echo esc_url($slide['button_url']); ?>"><?php echo esc_html($slide['button_text']); ?></a>
+                                    <?php if (0 === $index) : ?>
+                                        <a class="btn btn-secondary" href="<?php echo esc_url(home_url('/membership/')); ?>">Reserve Your Founding Rate</a>
+                                    <?php endif; ?>
                                 </div>
                             </div>
                         </article>
