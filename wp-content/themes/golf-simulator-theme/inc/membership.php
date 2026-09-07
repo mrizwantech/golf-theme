@@ -32,6 +32,29 @@ function golf_simulator_theme_create_membership_table() {
 }
 add_action('init', 'golf_simulator_theme_create_membership_table');
 
+function golf_simulator_theme_create_membership_history_table() {
+    global $wpdb;
+
+    $table_name = $wpdb->prefix . 'membership_history';
+    $charset_collate = $wpdb->get_charset_collate();
+    $sql = "CREATE TABLE IF NOT EXISTS $table_name (
+        id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+        user_id bigint(20) unsigned NOT NULL,
+        action varchar(30) NOT NULL DEFAULT '',
+        previous_package varchar(100) NOT NULL DEFAULT '',
+        new_package varchar(100) NOT NULL DEFAULT '',
+        amount varchar(50) NOT NULL DEFAULT '0.00',
+        created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id),
+        KEY user_id (user_id),
+        KEY action (action)
+    ) $charset_collate;";
+
+    require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+    dbDelta($sql);
+}
+add_action('init', 'golf_simulator_theme_create_membership_history_table');
+
 function golf_simulator_theme_get_user_membership_record($user_id) {
     global $wpdb;
 
@@ -39,6 +62,15 @@ function golf_simulator_theme_get_user_membership_record($user_id) {
 
     return $wpdb->get_row(
         $wpdb->prepare("SELECT * FROM $table_name WHERE user_id = %d ORDER BY id DESC LIMIT 1", absint($user_id))
+    );
+}
+
+function golf_simulator_theme_get_membership_history($user_id) {
+    global $wpdb;
+
+    $table_name = $wpdb->prefix . 'membership_history';
+    return $wpdb->get_results(
+        $wpdb->prepare("SELECT * FROM $table_name WHERE user_id = %d ORDER BY created_at DESC, id DESC", absint($user_id))
     );
 }
 
@@ -70,7 +102,7 @@ function golf_simulator_theme_save_user_membership_record($args = array()) {
     $package_name = sanitize_text_field($data['package_name']);
     $package_slug = sanitize_title($data['package_slug'] ?: $package_name);
     $status = in_array($data['status'], array('active', 'pending', 'cancelled', 'paused', 'upgraded', 'downgraded'), true) ? $data['status'] : 'pending';
-    $payment_status = in_array($data['payment_status'], array('paid', 'pending', 'failed', 'cancelled'), true) ? $data['payment_status'] : 'pending';
+    $payment_status = in_array($data['payment_status'], array('paid', 'pending', 'failed', 'cancelled', 'refunded'), true) ? $data['payment_status'] : 'pending';
     $payment_date = !empty($data['payment_date']) ? $data['payment_date'] : current_time('mysql');
     $start_date = !empty($data['start_date']) ? $data['start_date'] : current_time('mysql');
     $next_billing_date = !empty($data['next_billing_date']) ? $data['next_billing_date'] : '';
@@ -158,6 +190,28 @@ function golf_simulator_theme_calculate_prorated_upgrade_amount($membership, $ne
     return round($price_difference * $remaining_fraction, 2);
 }
 
+function golf_simulator_theme_calculate_prorated_refund_amount($membership, $new_package = null) {
+    if (!$membership || empty($membership->next_billing_date)) {
+        return 0.00;
+    }
+
+    $current_price = (float) (!empty($membership->discount_price) ? $membership->discount_price : $membership->price);
+    $new_price = $new_package ? (float) (!empty($new_package['discount_price']) ? $new_package['discount_price'] : $new_package['price']) : 0.00;
+    $refund_difference = $current_price - $new_price;
+
+    if ($refund_difference <= 0) {
+        return 0.00;
+    }
+
+    $now = current_time('timestamp');
+    $next_billing_timestamp = mysql2date('U', $membership->next_billing_date, false);
+    $start_timestamp = !empty($membership->start_date) ? mysql2date('U', $membership->start_date, false) : strtotime('-1 month', $next_billing_timestamp);
+    $remaining_seconds = max(0, $next_billing_timestamp - $now);
+    $billing_cycle_seconds = max(1, $next_billing_timestamp - $start_timestamp);
+
+    return round($refund_difference * min(1, $remaining_seconds / $billing_cycle_seconds), 2);
+}
+
 function golf_simulator_theme_charge_membership_upgrade($user_id, $amount, $submitted_token = '') {
     $stripe_settings = get_option('woocommerce_stripe_settings', array());
     $secret_key = !empty($stripe_settings['secret_key']) ? $stripe_settings['secret_key'] : '';
@@ -192,6 +246,40 @@ function golf_simulator_theme_charge_membership_upgrade($user_id, $amount, $subm
     }
 
     delete_user_meta($user_id, '_membership_stripe_token');
+    return $body['id'];
+}
+
+function golf_simulator_theme_refund_membership_amount($user_id, $amount) {
+    $stripe_settings = get_option('woocommerce_stripe_settings', array());
+    $secret_key = !empty($stripe_settings['secret_key']) ? $stripe_settings['secret_key'] : '';
+    $charge_id = get_user_meta($user_id, '_membership_last_charge_id', true);
+
+    if (!$secret_key || !$charge_id || $amount <= 0) {
+        return new WP_Error('membership_refund_unavailable', __('A previous Stripe charge is required before issuing this refund.', 'golf-simulator-theme'));
+    }
+
+    $response = wp_remote_post('https://api.stripe.com/v1/refunds', array(
+        'timeout' => 30,
+        'headers' => array(
+            'Authorization' => 'Basic ' . base64_encode($secret_key . ':'),
+        ),
+        'body' => array(
+            'charge' => $charge_id,
+            'amount' => (int) round($amount * 100),
+            'metadata[user_id]' => (string) $user_id,
+        ),
+    ));
+
+    if (is_wp_error($response)) {
+        return new WP_Error('membership_refund_failed', $response->get_error_message());
+    }
+
+    $body = json_decode(wp_remote_retrieve_body($response), true);
+    if (wp_remote_retrieve_response_code($response) >= 300 || empty($body['id'])) {
+        $message = !empty($body['error']['message']) ? $body['error']['message'] : __('Stripe could not complete the refund.', 'golf-simulator-theme');
+        return new WP_Error('membership_refund_failed', $message);
+    }
+
     return $body['id'];
 }
 
@@ -946,6 +1034,10 @@ function golf_simulator_theme_process_membership_management() {
     $package = $package_data[$package_name] ?? $package_data['PAR'];
     $current_membership = golf_simulator_theme_get_user_membership_record($user_id);
     $prorated_upgrade_amount = 'upgrade' === $action ? golf_simulator_theme_calculate_prorated_upgrade_amount($current_membership, $package) : 0.00;
+    $prorated_refund_amount = in_array($action, array('downgrade', 'cancel'), true) ? golf_simulator_theme_calculate_prorated_refund_amount($current_membership, 'downgrade' === $action ? $package : null) : 0.00;
+    $membership_start_date = $current_membership && !empty($current_membership->start_date) ? $current_membership->start_date : current_time('mysql');
+    $charge_id = get_user_meta($user_id, '_membership_last_charge_id', true);
+    $refund_was_issued = false;
     $submitted_token = sanitize_text_field(wp_unslash($_POST['stripeToken'] ?? ''));
 
     if ('upgrade' === $action && $prorated_upgrade_amount > 0) {
@@ -954,11 +1046,29 @@ function golf_simulator_theme_process_membership_management() {
         if (is_wp_error($payment_result)) {
             wp_die(esc_html($payment_result->get_error_message()), esc_html__('Membership upgrade payment failed', 'golf-simulator-theme'), array('back_link' => true));
         }
+
+        update_user_meta($user_id, '_membership_last_charge_id', $payment_result);
+    }
+
+    if ($prorated_refund_amount > 0 && $charge_id) {
+        $refund_result = golf_simulator_theme_refund_membership_amount($user_id, $prorated_refund_amount);
+
+        if (is_wp_error($refund_result)) {
+            wp_safe_redirect(add_query_arg(
+                array(
+                    'membership_error' => $refund_result->get_error_message(),
+                ),
+                home_url('/my-account/')
+            ));
+            exit;
+        }
+
+        $refund_was_issued = true;
     }
 
     if ('cancel' === $action) {
         $status = 'cancelled';
-        $payment_status = 'cancelled';
+        $payment_status = $refund_was_issued ? 'refunded' : 'cancelled';
         $cancel_date = current_time('mysql');
         $next_billing_date = '';
     } elseif ('pause' === $action) {
@@ -975,6 +1085,7 @@ function golf_simulator_theme_process_membership_management() {
 
     if ('downgrade' === $action) {
         $status = 'downgraded';
+        $payment_status = $refund_was_issued ? 'refunded' : 'pending';
     }
 
     if ('upgrade' === $action) {
@@ -992,13 +1103,31 @@ function golf_simulator_theme_process_membership_management() {
         'payment_date' => current_time('mysql'),
         'next_billing_date' => $next_billing_date,
         'cancel_date' => $cancel_date,
-        'start_date' => current_time('mysql'),
+        'start_date' => $membership_start_date,
     ));
+
+    global $wpdb;
+    $history_table = $wpdb->prefix . 'membership_history';
+    $wpdb->insert(
+        $history_table,
+        array(
+            'user_id' => $user_id,
+            'action' => $action,
+            'previous_package' => $current_membership ? $current_membership->package_name : '',
+            'new_package' => $package_name,
+            'amount' => number_format('upgrade' === $action ? $prorated_upgrade_amount : $prorated_refund_amount, 2, '.', ''),
+            'created_at' => current_time('mysql'),
+        ),
+        array('%d', '%s', '%s', '%s', '%s', '%s')
+    );
 
     if ('upgrade' === $action) {
         update_user_meta($user_id, '_membership_upgrade_balance', number_format($prorated_upgrade_amount, 2, '.', ''));
         golf_simulator_theme_send_membership_confirmation($user_id, $package_name, $prorated_upgrade_amount, 'paid', 'Membership upgrade payment confirmed');
     } else {
+        if ($prorated_refund_amount > 0) {
+            golf_simulator_theme_send_membership_confirmation($user_id, $package_name, $prorated_refund_amount, 'refunded', 'Membership refund confirmed');
+        }
         $action_labels = array(
             'downgrade' => 'Membership downgrade confirmed',
             'pause' => 'Membership paused',
@@ -1008,7 +1137,12 @@ function golf_simulator_theme_process_membership_management() {
         golf_simulator_theme_send_membership_confirmation($user_id, $package_name, 0, $payment_status, $action_subject);
     }
 
-    wp_safe_redirect(add_query_arg('membership_updated', '1', home_url('/my-account/')));
+    $redirect_args = array('membership_updated' => '1');
+    if (in_array($action, array('cancel', 'downgrade'), true) && $prorated_refund_amount > 0 && !$refund_was_issued) {
+        $redirect_args['membership_notice'] = 'Membership updated. No refund was issued because no verified Stripe charge was found.';
+    }
+
+    wp_safe_redirect(add_query_arg($redirect_args, home_url('/my-account/')));
     exit;
 }
 add_action('admin_post_golf_simulator_membership_manage', 'golf_simulator_theme_process_membership_management');
@@ -1091,6 +1225,20 @@ function golf_simulator_theme_process_membership_signup() {
         'next_billing_date' => date('Y-m-d H:i:s', strtotime('+1 month', current_time('timestamp'))),
         'start_date' => current_time('mysql'),
     ));
+
+    global $wpdb;
+    $wpdb->insert(
+        $wpdb->prefix . 'membership_history',
+        array(
+            'user_id' => $user_id,
+            'action' => 'signup',
+            'previous_package' => '',
+            'new_package' => $package_name,
+            'amount' => number_format((float) $price, 2, '.', ''),
+            'created_at' => current_time('mysql'),
+        ),
+        array('%d', '%s', '%s', '%s', '%s', '%s')
+    );
 
     golf_simulator_theme_send_membership_confirmation($user_id, $package_name, $price, 'pending');
 

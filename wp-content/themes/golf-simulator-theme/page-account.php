@@ -15,6 +15,7 @@ if (!is_user_logged_in()) {
 $current_user = wp_get_current_user();
 $user_email = $current_user->user_email;
 $membership = golf_simulator_theme_get_user_membership_record($current_user->ID);
+$membership_history = golf_simulator_theme_get_membership_history($current_user->ID);
 $upgrade_balance = get_user_meta($current_user->ID, '_membership_upgrade_balance', true);
 
 // Get user's bookings (CRUD: Read)
@@ -63,6 +64,9 @@ $message = get_transient('ttn_user_booking_message_' . $user_email);
 if ($message) {
     delete_transient('ttn_user_booking_message_' . $user_email);
 }
+$membership_error = isset($_GET['membership_error']) ? sanitize_text_field(wp_unslash($_GET['membership_error'])) : '';
+$membership_notice = isset($_GET['membership_notice']) ? sanitize_text_field(wp_unslash($_GET['membership_notice'])) : '';
+$membership_updated = isset($_GET['membership_updated']) && '1' === $_GET['membership_updated'];
 ?>
 <main class="container">
     <article class="entry-content">
@@ -75,6 +79,20 @@ if ($message) {
         <?php if ($message && !empty($message['message'])) : ?>
             <div class="notice notice-<?php echo esc_attr($message['success'] ? 'success' : 'error'); ?> is-dismissible">
                 <p><?php echo esc_html($message['message']); ?></p>
+            </div>
+        <?php endif; ?>
+
+        <?php if ($membership_error) : ?>
+            <div class="notice notice-error is-dismissible">
+                <p><?php echo esc_html($membership_error); ?></p>
+            </div>
+        <?php elseif ($membership_notice) : ?>
+            <div class="notice notice-warning is-dismissible">
+                <p><?php echo esc_html($membership_notice); ?></p>
+            </div>
+        <?php elseif ($membership_updated) : ?>
+            <div class="notice notice-success is-dismissible">
+                <p>Your membership was updated successfully.</p>
             </div>
         <?php endif; ?>
 
@@ -107,6 +125,23 @@ if ($message) {
                     <span><strong>Payment date:</strong> <?php echo esc_html($membership->payment_date ? mysql2date(get_option('date_format'), $membership->payment_date) : 'Pending'); ?></span>
                     <span><strong>Next billing:</strong> <?php echo esc_html($membership->next_billing_date ? mysql2date(get_option('date_format'), $membership->next_billing_date) : 'To be confirmed'); ?></span>
                 </div>
+                <?php if (!empty($membership_history)) : ?>
+                    <div class="account-membership-history">
+                        <h3>Membership History</h3>
+                        <div class="account-membership-history-list">
+                            <?php foreach ($membership_history as $history) : ?>
+                                <div class="account-membership-history-item">
+                                    <strong><?php echo esc_html(ucfirst($history->action)); ?></strong>
+                                    <span><?php echo esc_html(mysql2date(get_option('date_format'), $history->created_at)); ?></span>
+                                    <span><?php echo esc_html($history->previous_package ? $history->previous_package . ' to ' : ''); ?><?php echo esc_html($history->new_package); ?></span>
+                                    <?php if ((float) $history->amount > 0) : ?>
+                                        <span><?php echo 'cancel' === $history->action || 'downgrade' === $history->action ? 'Refunded' : 'Charged'; ?> $<?php echo esc_html(number_format((float) $history->amount, 2)); ?></span>
+                                    <?php endif; ?>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                <?php endif; ?>
                 <div class="account-membership-actions">
                     <h3>Manage Membership</h3>
                     <?php if ('' !== $upgrade_balance) : ?>
@@ -356,6 +391,35 @@ if ($message) {
     margin-top: 18px;
     color: var(--muted);
     font-size: 0.92rem;
+}
+
+.account-membership-history {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-soft);
+}
+
+.account-membership-history h3 {
+    margin: 0 0 14px;
+}
+
+.account-membership-history-list {
+    display: grid;
+    gap: 10px;
+}
+
+.account-membership-history-item {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    padding: 12px 14px;
+    background: var(--surface-soft, #f7faf9);
+    border-radius: 8px;
+    color: var(--muted);
+}
+
+.account-membership-history-item strong {
+    color: var(--heading);
 }
 
 .account-membership-actions {
