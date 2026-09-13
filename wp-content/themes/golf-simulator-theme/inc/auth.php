@@ -1,5 +1,31 @@
 <?php
 
+// Auto-create the branded login/register pages so a fresh or staging
+// environment never falls back to a non-existent /login/ URL, which is
+// what causes the wp-login.php <-> /login/ redirect loop.
+function golf_simulator_theme_ensure_auth_pages() {
+    foreach (array('login' => 'Login', 'register' => 'Register') as $slug => $title) {
+        $page = get_page_by_path($slug);
+
+        if (!$page) {
+            $page_id = wp_insert_post(array(
+                'post_title' => $title,
+                'post_name' => $slug,
+                'post_status' => 'publish',
+                'post_type' => 'page',
+                'post_content' => '',
+            ));
+        } else {
+            $page_id = $page->ID;
+        }
+
+        if ($page_id && !is_wp_error($page_id) && get_post_meta($page_id, '_wp_page_template', true) !== 'page-login.php') {
+            update_post_meta($page_id, '_wp_page_template', 'page-login.php');
+        }
+    }
+}
+add_action('init', 'golf_simulator_theme_ensure_auth_pages');
+
 function golf_simulator_theme_get_login_url($redirect_to = '', $tab = 'login') {
     $page = get_page_by_path('login');
     $url = $page ? get_permalink($page) : home_url('/login/');
@@ -31,7 +57,14 @@ function golf_simulator_theme_redirect_native_login() {
 
     $redirect_to = isset($_REQUEST['redirect_to']) ? esc_url_raw(wp_unslash($_REQUEST['redirect_to'])) : '';
     $tab = 'register' === $action ? 'register' : 'login';
-    wp_safe_redirect(golf_simulator_theme_get_login_url($redirect_to, $tab));
+    $target_url = golf_simulator_theme_get_login_url($redirect_to, $tab);
+
+    // Guard against looping back to wp-login.php if no branded page exists yet.
+    if (false !== strpos($target_url, 'wp-login.php')) {
+        return;
+    }
+
+    wp_safe_redirect($target_url);
     exit;
 }
 add_action('login_init', 'golf_simulator_theme_redirect_native_login');

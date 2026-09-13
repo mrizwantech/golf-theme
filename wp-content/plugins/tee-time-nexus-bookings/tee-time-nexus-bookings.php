@@ -117,25 +117,86 @@ function ttn_booking_get_logo_url() {
     return $logo_url ? $logo_url : get_site_icon_url(96);
 }
 
-function ttn_booking_render_email($title, $intro, $rows, $account_url) {
+function ttn_booking_render_email($title, $intro, $rows, $account_url, $use_customer_template = true) {
     $logo_url = ttn_booking_get_logo_url();
-    $rows_html = '';
+    $details = array();
 
     foreach ($rows as $label => $value) {
-        $rows_html .= '<tr><td style="padding:10px 0;color:#6b7280;font-size:13px;border-bottom:1px solid #e5e7eb;">' . esc_html($label) . '</td><td style="padding:10px 0;text-align:right;color:#111827;font-size:14px;font-weight:700;border-bottom:1px solid #e5e7eb;">' . esc_html($value) . '</td></tr>';
+        $details[] = $label . ': ' . $value;
     }
 
+    if ($use_customer_template) {
+        $default_subject = 'Your Tee Time Nexus booking details';
+        $default_body = "Hi,\n\n{{intro}}\n\n{{booking_details}}\n\nView your bookings: {{account_url}}\n\nQuestions? Reply to this email and our team will help.\n\nTee Time Nexus";
+        $subject_template = get_option('ttn_booking_email_subject', $default_subject);
+        $body_template = get_option('ttn_booking_email_body', $default_body);
+        $replacements = array(
+            '{{title}}' => $title,
+            '{{intro}}' => $intro,
+            '{{booking_details}}' => implode("\n", $details),
+            '{{account_url}}' => $account_url,
+        );
+        $subject = strtr($subject_template, $replacements);
+        $body = strtr($body_template, $replacements);
+    } else {
+        $subject = $title;
+        $body = $intro . "\n\n" . implode("\n", $details);
+    }
+    $body_html = nl2br(esc_html($body));
     $logo_html = $logo_url ? '<img src="' . esc_url($logo_url) . '" alt="Tee Time Nexus" style="display:block;max-width:180px;max-height:56px;margin:0 auto 16px;">' : '<div style="font-size:24px;font-weight:800;letter-spacing:.02em;margin-bottom:16px;">Tee Time Nexus</div>';
 
-    return '<!doctype html><html><body style="margin:0;background:#f3f4f6;font-family:Arial,sans-serif;color:#111827;">'
-        . '<div style="padding:32px 12px;"><div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e5e7eb;">'
-        . '<div style="background:#07110b;padding:28px 24px;text-align:center;color:#ffffff;">' . $logo_html . '<div style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#a1e04c;font-weight:700;">Tee Time Nexus</div></div>'
-        . '<div style="padding:28px 28px 32px;"><h1 style="margin:0 0 12px;font-size:24px;line-height:1.2;color:#111827;">' . esc_html($title) . '</h1>'
-        . '<p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#4b5563;">' . esc_html($intro) . '</p>'
-        . '<table role="presentation" style="width:100%;border-collapse:collapse;">' . $rows_html . '</table>'
-        . '<p style="margin:26px 0 0;text-align:center;"><a href="' . esc_url($account_url) . '" style="display:inline-block;padding:13px 20px;background:#a1e04c;color:#101010;text-decoration:none;border-radius:8px;font-weight:800;">View My Bookings</a></p>'
-        . '<p style="margin:24px 0 0;font-size:12px;line-height:1.5;color:#6b7280;text-align:center;">Questions? Reply to this email and our team will help.</p>'
-        . '</div></div></div></body></html>';
+    return array(
+        'subject' => $subject,
+        'message' => '<!doctype html><html><body style="margin:0;background:#f3f4f6;font-family:Arial,sans-serif;color:#111827;">'
+            . '<div style="padding:32px 12px;"><div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e5e7eb;">'
+            . '<div style="background:#07110b;padding:28px 24px;text-align:center;color:#ffffff;">' . $logo_html . '<div style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#a1e04c;font-weight:700;">Tee Time Nexus</div></div>'
+            . '<div style="padding:28px 28px 32px;"><h1 style="margin:0 0 12px;font-size:24px;line-height:1.2;color:#111827;">' . esc_html($title) . '</h1>'
+            . '<div style="font-size:15px;line-height:1.6;color:#4b5563;">' . $body_html . '</div>'
+            . '</div></div></div></body></html>',
+    );
+}
+
+function ttn_booking_get_customer_email($title, $intro, $rows, $account_url) {
+    $email = ttn_booking_render_email($title, $intro, $rows, $account_url);
+    return $email;
+}
+
+function ttn_booking_email_template_page() {
+    if (!current_user_can('manage_options')) {
+        wp_die('Unauthorized');
+    }
+
+    $default_subject = 'Your Tee Time Nexus booking details';
+    $default_body = "Hi,\n\n{{intro}}\n\n{{booking_details}}\n\nView your bookings: {{account_url}}\n\nQuestions? Reply to this email and our team will help.\n\nTee Time Nexus";
+
+    if (isset($_POST['ttn_booking_email_template_nonce']) && wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['ttn_booking_email_template_nonce'])), 'ttn_booking_email_template')) {
+        update_option('ttn_booking_email_subject', sanitize_text_field(wp_unslash($_POST['ttn_booking_email_subject'] ?? $default_subject)));
+        update_option('ttn_booking_email_body', sanitize_textarea_field(wp_unslash($_POST['ttn_booking_email_body'] ?? $default_body)));
+        echo '<div class="notice notice-success is-dismissible"><p>Booking email template saved.</p></div>';
+    }
+
+    $subject = get_option('ttn_booking_email_subject', $default_subject);
+    $body = get_option('ttn_booking_email_body', $default_body);
+    ?>
+    <div class="wrap">
+        <h1>Booking Email Template</h1>
+        <p>This template controls customer booking emails. Use these placeholders: <code>{{title}}</code>, <code>{{intro}}</code>, <code>{{booking_details}}</code>, and <code>{{account_url}}</code>.</p>
+        <form method="post">
+            <?php wp_nonce_field('ttn_booking_email_template', 'ttn_booking_email_template_nonce'); ?>
+            <table class="form-table" role="presentation">
+                <tr>
+                    <th scope="row"><label for="ttn_booking_email_subject">Subject</label></th>
+                    <td><input name="ttn_booking_email_subject" id="ttn_booking_email_subject" type="text" class="regular-text" value="<?php echo esc_attr($subject); ?>"></td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="ttn_booking_email_body">Message</label></th>
+                    <td><textarea name="ttn_booking_email_body" id="ttn_booking_email_body" rows="16" class="large-text code"><?php echo esc_textarea($body); ?></textarea></td>
+                </tr>
+            </table>
+            <p><button type="submit" class="button button-primary">Save Email Template</button></p>
+        </form>
+    </div>
+    <?php
 }
 
 function ttn_booking_register_cpt() {
@@ -974,15 +1035,18 @@ function ttn_booking_submit() {
         );
 
         ttn_booking_send_mail($admin_email, $subject, $message);
-        ttn_booking_send_mail($email, 'Your Tee Time Nexus booking request', sprintf(
-            "Hi %s,\n\nThanks for your request. We received your reservation for %s on %s from %s for %d player%s.\n\nPlease complete checkout to secure your booking.",
-            $name,
-            $bay,
-            $date,
-            $time,
-            $players,
-            $players === 1 ? '' : 's'
-        ));
+        $customer_email = ttn_booking_get_customer_email(
+            'Reservation request received',
+            'Hi ' . $name . ', we received your reservation request. Please complete checkout to secure your booking.',
+            array(
+                'Bay' => ttn_get_bay_display_name($bay),
+                'Date' => $date,
+                'Time' => $time,
+                'Players' => (string) $players,
+            ),
+            ttn_booking_get_account_login_url()
+        );
+        ttn_booking_send_mail($email, $customer_email['subject'], $customer_email['message']);
     }
 
     $checkout_url = ttn_booking_add_to_cart_and_redirect($bay, array(
@@ -1140,12 +1204,11 @@ function ttn_booking_checkout() {
         $booking_reference = 'TTN-' . str_pad((string) $parent_booking_id, 6, '0', STR_PAD_LEFT);
         $payment_status = 'Payment submitted - transaction verification required';
 
-        $subject = 'Your Tee Time Nexus Booking Confirmation';
         $intro = 'Hi ' . $name . ', your reservation details are below. Keep this email for your records.';
         if ($account_created && $new_password !== '') {
             $intro .= ' We also set up your account so you can log in with this email to manage future bookings.';
         }
-        $message = ttn_booking_render_email(
+        $customer_email = ttn_booking_render_email(
             'Reservation received',
             $intro,
             array(
@@ -1158,14 +1221,15 @@ function ttn_booking_checkout() {
                 'Amount' => '$' . number_format($total_price, 2),
                 'Payment status' => $payment_status,
             ),
-            $account_url
+            $account_url,
+            false
         );
-        ttn_booking_send_mail($email, $subject, $message);
+        ttn_booking_send_mail($email, $customer_email['subject'], $customer_email['message']);
 
         // Send admin notification
         $admin_email = get_option('admin_email');
         $admin_subject = 'New Booking: ' . $name . ' - ' . $bay;
-        $admin_message = ttn_booking_render_email(
+        $admin_email_message = ttn_booking_render_email(
             'New booking received',
             'A new reservation was submitted through the Tee Time Nexus booking form.',
             array(
@@ -1183,7 +1247,7 @@ function ttn_booking_checkout() {
             ),
             $account_url
         );
-        ttn_booking_send_mail($admin_email, $admin_subject, $admin_message);
+        ttn_booking_send_mail($admin_email, $admin_subject, $admin_email_message['message']);
     }
 
     wp_safe_redirect(home_url('/book-a-bay/?booking=confirmed&id=' . $parent_booking_id));
@@ -1212,6 +1276,15 @@ function ttn_add_admin_menu() {
         'manage_options',
         'ttn-bookings-dashboard',
         'ttn_render_booking_dashboard'
+    );
+
+    add_submenu_page(
+        'ttn-bookings-dashboard',
+        'Email Template',
+        'Email Template',
+        'manage_options',
+        'ttn-booking-email-template',
+        'ttn_booking_email_template_page'
     );
 }
 add_action('admin_menu', 'ttn_add_admin_menu');
@@ -1428,22 +1501,18 @@ function ttn_send_booking_reminder($booking_id) {
     $date = get_post_meta($booking_id, 'ttn_booking_date', true);
     $time = get_post_meta($booking_id, 'ttn_booking_time', true);
 
-    $subject = 'Reminder: Your Upcoming Tee Time Nexus Booking';
-    $message = sprintf(
-        "Hi %s,\n\nThis is a friendly reminder about your upcoming reservation:\n\n" .
-        "Bay: %s\n" .
-        "Date: %s\n" .
-        "Time: %s\n\n" .
-        "We look forward to seeing you!\n\n" .
-        "Best regards,\n" .
-        "Tee Time Nexus Team",
-        $name,
-        $bay,
-        $date,
-        $time
+    $customer_email = ttn_booking_get_customer_email(
+        'Upcoming reservation reminder',
+        'Hi ' . $name . ', this is a friendly reminder about your upcoming reservation.',
+        array(
+            'Bay' => $bay,
+            'Date' => $date,
+            'Time' => $time,
+        ),
+        ttn_booking_get_account_login_url()
     );
 
-    wp_mail($email, $subject, $message);
+    ttn_booking_send_mail($email, $customer_email['subject'], $customer_email['message']);
 }
 
 // ===== USER-FACING CRUD HANDLERS (BUSINESS LOGIC) =====
