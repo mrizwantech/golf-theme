@@ -41,8 +41,8 @@ get_header();
         <p>Log in to manage your bookings, or create an account to book faster next time.</p>
 
         <?php if ($error_message) : ?>
-            <div class="notice notice-error">
-                <p><?php echo esc_html($error_message); ?></p>
+            <div class="notice notice-error" data-tab="<?php echo esc_attr($active_tab); ?>">
+                <p><?php echo wp_kses($error_message, array('a' => array('href' => array()))); ?></p>
             </div>
         <?php endif; ?>
 
@@ -59,13 +59,14 @@ get_header();
                 <div class="form-grid">
                     <label class="full-width">
                         Email Address or Username
-                        <input type="text" name="login_identifier" placeholder="you@example.com or admin" autocomplete="username" required>
+                        <input type="text" name="login_identifier" value="<?php echo esc_attr($active_tab === 'login' && isset($_POST['login_identifier']) ? wp_unslash($_POST['login_identifier']) : ''); ?>" placeholder="you@example.com or admin" autocomplete="username" required>
                     </label>
                     <label class="full-width">
                         Password
                         <input type="password" name="password" placeholder="Your password" autocomplete="current-password" required>
                     </label>
                 </div>
+                <p class="auth-forgot"><a href="<?php echo esc_url(wp_lostpassword_url(home_url('/login/'))); ?>" class="text-link">Forgot your password?</a></p>
                 <button type="submit" class="btn btn-primary full-width">Log In</button>
             </form>
         </div>
@@ -88,8 +89,20 @@ get_header();
                         Password
                         <input type="password" name="password" placeholder="At least 6 characters" autocomplete="new-password" minlength="6" required>
                     </label>
+                    <label class="full-width">
+                        Phone Number
+                        <input type="tel" name="phone" placeholder="(555) 123-4567" autocomplete="tel">
+                    </label>
+                    <label class="full-width checkbox-label">
+                        <input type="checkbox" name="sms_opt_in" id="ttn-sms-opt-in" value="1">
+                        Text me about my bookings and tee time offers
+                    </label>
+                    <label class="full-width checkbox-label">
+                        <input type="checkbox" name="promo_opt_in" value="1">
+                        Send me promotional emails and text messages about offers
+                    </label>
                 </div>
-                <button type="submit" class="btn btn-primary full-width">Create Account</button>
+                <button type="submit" class="btn btn-primary full-width" id="ttn-register-submit">Create Account</button>
             </form>
         </div>
     </article>
@@ -120,6 +133,7 @@ get_header();
 .auth-panel { display: none; }
 .auth-panel.active { display: block; }
 .auth-card .btn.full-width { width: 100%; margin-top: 12px; }
+.auth-forgot { margin: 10px 0 0; text-align: right; font-size: 0.9rem; }
 .auth-card .notice {
     padding: 12px 14px;
     border-radius: 10px;
@@ -130,6 +144,21 @@ get_header();
     background: rgba(220, 38, 38, 0.12);
     border: 1px solid rgba(220, 38, 38, 0.35);
     color: #f87171;
+}
+.auth-card .optional-tag {
+    font-weight: 400;
+    color: var(--muted);
+}
+.auth-card .checkbox-label {
+    flex-direction: row !important;
+    align-items: center;
+    gap: 10px !important;
+    font-weight: 500;
+}
+.auth-card .checkbox-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
 }
 </style>
 <script>
@@ -142,14 +171,33 @@ get_header();
             document.querySelectorAll('.auth-panel').forEach(function(p) { p.classList.remove('active'); });
             tab.classList.add('active');
             document.getElementById('auth-panel-' + target).classList.add('active');
+
+            var notice = document.querySelector('.notice-error');
+            if (notice && notice.getAttribute('data-tab') !== target) {
+                notice.style.display = 'none';
+            }
         });
     });
 
     document.querySelectorAll('.auth-panel form').forEach(function(form) {
-        form.addEventListener('submit', function() {
+        form.addEventListener('submit', function(e) {
             if (form.dataset.submitting === 'true') {
                 return;
             }
+
+            var isRegister = form.querySelector('input[name="ttn_auth_action"]').value === 'register';
+
+            if (isRegister) {
+                var smsCheckbox = form.querySelector('#ttn-sms-opt-in');
+                if (smsCheckbox && !smsCheckbox.checked) {
+                    var proceed = window.confirm('You haven\'t opted in to text messages. You might miss important booking updates and reminders. Continue anyway?');
+                    if (!proceed) {
+                        e.preventDefault();
+                        return;
+                    }
+                }
+            }
+
             form.dataset.submitting = 'true';
 
             var button = form.querySelector('button[type="submit"]');
@@ -157,7 +205,6 @@ get_header();
                 return;
             }
 
-            var isRegister = form.querySelector('input[name="ttn_auth_action"]').value === 'register';
             button.disabled = true;
             button.classList.add('is-loading');
             button.innerHTML = '<span class="btn-spinner" aria-hidden="true"></span>' + (isRegister ? 'Creating account...' : 'Logging in...');

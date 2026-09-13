@@ -67,6 +67,11 @@ if ($message) {
 $membership_error = isset($_GET['membership_error']) ? sanitize_text_field(wp_unslash($_GET['membership_error'])) : '';
 $membership_notice = isset($_GET['membership_notice']) ? sanitize_text_field(wp_unslash($_GET['membership_notice'])) : '';
 $membership_updated = isset($_GET['membership_updated']) && '1' === $_GET['membership_updated'];
+$profile_updated = isset($_GET['profile_updated']) && '1' === $_GET['profile_updated'];
+$profile_error = isset($_GET['profile_error']) ? sanitize_text_field(wp_unslash($_GET['profile_error'])) : '';
+$user_phone = get_user_meta($current_user->ID, 'phone_number', true);
+$user_sms_opt_in = get_user_meta($current_user->ID, 'sms_opt_in', true) === '1';
+$user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === '1';
 ?>
 <main class="container">
     <article class="entry-content">
@@ -95,6 +100,39 @@ $membership_updated = isset($_GET['membership_updated']) && '1' === $_GET['membe
                 <p>Your membership was updated successfully.</p>
             </div>
         <?php endif; ?>
+
+        <?php if ($profile_error) : ?>
+            <div class="notice notice-error is-dismissible">
+                <p><?php echo esc_html($profile_error); ?></p>
+            </div>
+        <?php elseif ($profile_updated) : ?>
+            <div class="notice notice-success is-dismissible">
+                <p>Your communication preferences were updated.</p>
+            </div>
+        <?php endif; ?>
+
+        <section class="account-membership-panel">
+            <h2>Communication Preferences</h2>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                <input type="hidden" name="action" value="golf_simulator_profile_update">
+                <?php wp_nonce_field('ttn_profile_update', 'ttn_profile_nonce'); ?>
+                <div class="form-grid">
+                    <label class="full-width">
+                        Phone Number
+                        <input type="tel" name="phone" value="<?php echo esc_attr($user_phone); ?>" placeholder="(555) 123-4567" autocomplete="tel">
+                    </label>
+                    <label class="full-width checkbox-label">
+                        <input type="checkbox" name="sms_opt_in" value="1" <?php checked($user_sms_opt_in); ?>>
+                        Text me about my bookings and tee time offers
+                    </label>
+                    <label class="full-width checkbox-label">
+                        <input type="checkbox" name="promo_opt_in" value="1" <?php checked($user_promo_opt_in); ?>>
+                        Send me promotional emails and text messages about offers
+                    </label>
+                </div>
+                <button type="submit" class="btn btn-primary" style="margin-top: 16px;">Save Preferences</button>
+            </form>
+        </section>
 
         <section class="account-membership-panel">
             <h2>My Membership</h2>
@@ -179,7 +217,7 @@ $membership_updated = isset($_GET['membership_updated']) && '1' === $_GET['membe
                     </form>
                 </div>
             <?php else : ?>
-                <p>You do not have a membership yet. <a href="<?php echo esc_url(home_url('/membership/')); ?>">View membership options</a></p>
+                <p>You do not have a membership yet. <a href="<?php echo esc_url(home_url('/membership/')); ?>" class="text-link">View membership options</a></p>
             <?php endif; ?>
         </section>
 
@@ -234,7 +272,7 @@ $membership_updated = isset($_GET['membership_updated']) && '1' === $_GET['membe
         </div>
         <?php endif; ?>
 
-        <div class="bookings-section">
+        <section class="account-membership-panel bookings-section">
             <h2>My Bookings</h2>
             
             <?php if (empty($user_bookings)) : ?>
@@ -295,9 +333,9 @@ $membership_updated = isset($_GET['membership_updated']) && '1' === $_GET['membe
             <?php endif; ?>
 
             <p style="margin-top: 20px;">
-                <a href="<?php echo esc_url(home_url('/book-a-bay/')); ?>" class="btn btn-primary">Book Another Bay</a>
+                <a href="<?php echo esc_url(home_url('/book-a-bay/')); ?>" class="btn btn-primary">Book a Bay</a>
             </p>
-        </div>
+        </section>
     </article>
 </main>
 <script src="https://js.stripe.com/v3/"></script>
