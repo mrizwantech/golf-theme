@@ -304,7 +304,7 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
                             $booking_date = strtotime($booking['date']);
                             $today = strtotime(current_time('Y-m-d'));
                             $is_past = $booking_date < $today;
-                            $price = $booking['duration'] * 50;
+                            $price = $booking['duration'] * ttn_booking_get_hourly_price($booking['bay']);
                             
                             // Links to edit and cancel using action handlers
                             $edit_url = get_permalink() . '?action=edit&booking_id=' . $booking['ID'];
@@ -453,11 +453,11 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
     padding: 12px 14px;
     background: var(--surface-soft, #f7faf9);
     border-radius: 8px;
-    color: var(--muted);
+    color: #1a2420;
 }
 
 .account-membership-history-item strong {
-    color: var(--heading);
+    color: #101010;
 }
 
 .account-membership-actions {

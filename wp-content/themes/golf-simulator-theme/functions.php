@@ -12,6 +12,7 @@ function golf_simulator_theme_setup() {
 }
 add_action('after_setup_theme', 'golf_simulator_theme_setup');
 
+require_once get_template_directory() . '/inc/email-template.php';
 require_once get_template_directory() . '/inc/membership.php';
 require_once get_template_directory() . '/inc/auth.php';
 require_once get_template_directory() . '/inc/welcome-signup.php';

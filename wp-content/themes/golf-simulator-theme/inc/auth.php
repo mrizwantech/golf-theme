@@ -233,28 +233,19 @@ function golf_simulator_theme_send_account_welcome_email($user_id) {
     $display_name = $user->display_name ?: 'Golfer';
     $account_url = home_url('/my-account/');
     $booking_url = home_url('/book-a-bay/');
-    $logo_id = get_theme_mod('custom_logo');
-    $logo_url = $logo_id ? wp_get_attachment_image_url($logo_id, 'full') : '';
-    $logo_html = $logo_url
-        ? '<img src="' . esc_url($logo_url) . '" alt="Tee Time Nexus" style="display:block;max-width:220px;max-height:64px;margin:0 auto 18px;">'
-        : '<div style="font-size:26px;font-weight:800;margin-bottom:18px;">Tee Time Nexus</div>';
 
     $subject = 'Welcome to Tee Time Nexus - Your Account is Ready';
-    $message = '<!doctype html><html><body style="margin:0;background:#f3f4f6;font-family:Arial,sans-serif;color:#111827;">'
-        . '<div style="padding:32px 12px;"><div style="max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;">'
-        . '<div style="padding:30px 24px;text-align:center;background:#07110b;color:#ffffff;">' . $logo_html . '<div style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#a1e04c;font-weight:700;">Account Confirmation</div></div>'
-        . '<div style="padding:30px 28px 34px;"><h1 style="margin:0 0 16px;color:#111827;font-size:24px;">Welcome, ' . esc_html($display_name) . '!</h1>'
-        . '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">Your Tee Time Nexus account has been created successfully. You can now manage bookings, track your membership, and book bays faster.</p>'
-        . '<p style="margin:0 0 22px;text-align:center;"><a href="' . esc_url($booking_url) . '" style="display:inline-block;padding:13px 20px;background:#a1e04c;color:#101010;text-decoration:none;border-radius:8px;font-weight:800;">Book a Bay</a></p>'
-        . '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">You can review or update your account and communication preferences anytime from <a href="' . esc_url($account_url) . '" style="color:#1769aa;text-decoration:underline;">My Account</a>.</p>'
-        . '<p style="margin:28px 0 0;color:#4b5563;font-size:15px;line-height:1.6;"><strong>See you on the tee!</strong><br><strong>Tee Time Nexus</strong></p>'
-        . '</div></div></div></body></html>';
-    $headers = array(
-        'Content-Type: text/html; charset=UTF-8',
-        'From: Tee Time Nexus <sales@teetimenexus.com>',
+    $body = '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">Your Tee Time Nexus account has been created successfully. You can now manage bookings, track your membership, and book bays faster.</p>'
+        . '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">You can review or update your account and communication preferences anytime from <a href="' . esc_url($account_url) . '" style="color:#1769aa;text-decoration:underline;">My Account</a>.</p>';
+    $message = golf_simulator_theme_render_email_template(
+        'Account Confirmation',
+        'Welcome, ' . $display_name . '!',
+        $body,
+        'Book a Bay',
+        $booking_url
     );
 
-    return wp_mail($user->user_email, $subject, $message, $headers);
+    return wp_mail($user->user_email, $subject, $message, golf_simulator_theme_get_email_headers());
 }
 
 function golf_simulator_theme_process_profile_update() {

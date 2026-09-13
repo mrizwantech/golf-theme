@@ -69,8 +69,9 @@ function golf_simulator_theme_get_membership_history($user_id) {
     global $wpdb;
 
     $table_name = $wpdb->prefix . 'membership_history';
+    // Excludes the initial 'signup' row so this only reflects actual past changes (upgrade/downgrade/pause/cancel).
     return $wpdb->get_results(
-        $wpdb->prepare("SELECT * FROM $table_name WHERE user_id = %d ORDER BY created_at DESC, id DESC", absint($user_id))
+        $wpdb->prepare("SELECT * FROM $table_name WHERE user_id = %d AND action != 'signup' ORDER BY created_at DESC, id DESC", absint($user_id))
     );
 }
 
@@ -212,9 +213,22 @@ function golf_simulator_theme_calculate_prorated_refund_amount($membership, $new
     return round($refund_difference * min(1, $remaining_seconds / $billing_cycle_seconds), 2);
 }
 
-function golf_simulator_theme_charge_membership_upgrade($user_id, $amount, $submitted_token = '') {
+// Mirrors WC_Stripe_API::get_secret_key() so we read the key for whichever mode (test/live) is actually active.
+function golf_simulator_theme_get_stripe_secret_key() {
+    if (class_exists('WC_Stripe_API')) {
+        return WC_Stripe_API::get_secret_key();
+    }
+
     $stripe_settings = get_option('woocommerce_stripe_settings', array());
-    $secret_key = !empty($stripe_settings['secret_key']) ? $stripe_settings['secret_key'] : '';
+    $is_test_mode = !empty($stripe_settings['testmode']) && 'yes' === $stripe_settings['testmode'];
+
+    return $is_test_mode
+        ? ($stripe_settings['test_secret_key'] ?? '')
+        : ($stripe_settings['secret_key'] ?? '');
+}
+
+function golf_simulator_theme_charge_membership_upgrade($user_id, $amount, $submitted_token = '') {
+    $secret_key = golf_simulator_theme_get_stripe_secret_key();
     $stripe_token = $submitted_token ?: get_user_meta($user_id, '_membership_stripe_token', true);
 
     if (!$secret_key || !$stripe_token || $amount <= 0) {
@@ -250,8 +264,7 @@ function golf_simulator_theme_charge_membership_upgrade($user_id, $amount, $subm
 }
 
 function golf_simulator_theme_refund_membership_amount($user_id, $amount) {
-    $stripe_settings = get_option('woocommerce_stripe_settings', array());
-    $secret_key = !empty($stripe_settings['secret_key']) ? $stripe_settings['secret_key'] : '';
+    $secret_key = golf_simulator_theme_get_stripe_secret_key();
     $charge_id = get_user_meta($user_id, '_membership_last_charge_id', true);
 
     if (!$secret_key || !$charge_id || $amount <= 0) {
@@ -1154,16 +1167,21 @@ function golf_simulator_theme_send_membership_confirmation($user_id, $package_na
     }
 
     $account_url = home_url('/my-account/');
-    $message = sprintf(
-        "Hi %s,\n\nYour Tee Time Nexus membership update has been received.\n\nMembership: %s\nAmount: $%s\nPayment status: %s\n\nYou can view your membership here: %s\n\nThank you,\nTee Time Nexus",
-        $user->display_name,
-        $package_name,
-        number_format((float) $amount, 2),
-        ucfirst($payment_status),
+    $body = '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">Hi ' . esc_html($user->display_name) . ', your Tee Time Nexus membership update has been received.</p>'
+        . '<table style="width:100%;border-collapse:collapse;margin:0 0 22px;font-size:15px;color:#4b5563;">'
+        . '<tr><td style="padding:6px 0;"><strong>Membership</strong></td><td style="padding:6px 0;text-align:right;">' . esc_html($package_name) . '</td></tr>'
+        . '<tr><td style="padding:6px 0;"><strong>Amount</strong></td><td style="padding:6px 0;text-align:right;">$' . esc_html(number_format((float) $amount, 2)) . '</td></tr>'
+        . '<tr><td style="padding:6px 0;"><strong>Payment status</strong></td><td style="padding:6px 0;text-align:right;">' . esc_html(ucfirst($payment_status)) . '</td></tr>'
+        . '</table>';
+    $message = golf_simulator_theme_render_email_template(
+        'Membership Update',
+        'Your Membership Has Been Updated',
+        $body,
+        'View My Membership',
         $account_url
     );
 
-    return wp_mail($user->user_email, $subject, $message);
+    return wp_mail($user->user_email, $subject, $message, golf_simulator_theme_get_email_headers());
 }
 
 function golf_simulator_theme_process_membership_signup() {

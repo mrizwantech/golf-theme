@@ -15,16 +15,12 @@ if (!$term) {
 }
 $term_id = is_array($term) ? $term['term_id'] : $term;
 
-$bay_names = array(
-    'Bay 1' => 'bay-1',
-    'Bay 2' => 'bay-2',
-    'Bay 3' => 'bay-3',
-    'Bay 4' => 'bay-4',
-);
+$bay_configs = function_exists('ttn_booking_get_bay_configs') ? ttn_booking_get_bay_configs() : array();
 
 $product_ids = array();
 
-foreach ($bay_names as $name => $sku) {
+foreach ($bay_configs as $sku => $bay_config) {
+    $name = $bay_config['name'];
     $existing = wc_get_products(array('sku' => $sku, 'limit' => 1, 'status' => 'any'));
     if (!empty($existing)) {
         $product = $existing[0];

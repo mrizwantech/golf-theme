@@ -162,7 +162,7 @@ function ttn_booking_get_customer_email($title, $intro, $rows, $account_url) {
 }
 
 function ttn_booking_email_template_page() {
-    if (!current_user_can('manage_options')) {
+    if (!current_user_can('manage_woocommerce')) {
         wp_die('Unauthorized');
     }
 
@@ -207,7 +207,7 @@ function ttn_booking_register_cpt() {
         ),
         'public' => false,
         'show_ui' => true,
-        'show_in_menu' => true,
+        'show_in_menu' => 'ttn-bookings-dashboard',
         'menu_icon' => 'dashicons-calendar-alt',
         'supports' => array('title', 'editor'),
         'capability_type' => 'post',
@@ -229,7 +229,7 @@ function ttn_normalize_string($string) {
  * Normalize bay names to canonical values so old bookings remain compatible.
  */
 function ttn_normalize_bay_name($bay_name) {
-    $normalized = ttn_normalize_string($bay_name);
+    $normalized = str_replace('-', '', ttn_normalize_string($bay_name));
 
     $mapping = array(
         'tigerwoodsbay' => 'bay1',
@@ -245,19 +245,70 @@ function ttn_normalize_bay_name($bay_name) {
     return isset($mapping[$normalized]) ? $mapping[$normalized] : $normalized;
 }
 
+function ttn_booking_get_default_bays() {
+    return array(
+        'bay-1' => array('name' => 'Bay 1', 'type' => 'right-handed', 'location' => 'front-right', 'premium' => false),
+        'bay-2' => array('name' => 'Bay 2', 'type' => 'right-handed', 'location' => 'front-left', 'premium' => false),
+        'bay-3' => array('name' => 'Bay 3', 'type' => 'right-handed', 'location' => 'back-right', 'premium' => false),
+        'bay-4' => array('name' => 'Bay 4', 'type' => 'right-handed', 'location' => 'back-left', 'premium' => false),
+    );
+}
+
+function ttn_booking_get_bay_configs() {
+    $bays = get_option('ttn_bays', null);
+    if (!is_array($bays) || empty($bays)) {
+        $bays = ttn_booking_get_default_bays();
+        update_option('ttn_bays', $bays);
+    }
+
+    return $bays;
+}
+
+function ttn_booking_get_bay_config($bay_name) {
+    $bays = ttn_booking_get_bay_configs();
+    $normalized = ttn_normalize_bay_name($bay_name);
+
+    foreach ($bays as $bay_key => $bay) {
+        if ($normalized === ttn_normalize_bay_name($bay_key) || $normalized === ttn_normalize_bay_name($bay['name'])) {
+            return array_merge(array('key' => $bay_key), $bay);
+        }
+    }
+
+    return null;
+}
+
+function ttn_booking_get_hourly_price($bay_name) {
+    $bay = ttn_booking_get_bay_config($bay_name);
+    $standard_price = (float) get_option('ttn_standard_hourly_price', 50);
+    $premium_price = (float) get_option('ttn_premium_hourly_price', 65);
+
+    return $bay && !empty($bay['premium']) ? $premium_price : $standard_price;
+}
+
+function ttn_booking_sync_bay_products($bays) {
+    if (!function_exists('wc_get_products') || !class_exists('WC_Product_Simple')) {
+        return;
+    }
+
+    foreach ($bays as $bay_key => $bay) {
+        $products = wc_get_products(array('sku' => $bay_key, 'limit' => 1, 'status' => 'any'));
+        $product = !empty($products) ? $products[0] : new WC_Product_Simple();
+        $product->set_name($bay['name'] . ' Rental');
+        $product->set_sku($bay_key);
+        $product->set_regular_price((string) ttn_booking_get_hourly_price($bay_key));
+        $product->set_price((string) ttn_booking_get_hourly_price($bay_key));
+        $product->set_status('publish');
+        $product->set_catalog_visibility('hidden');
+        $product->save();
+    }
+}
+
 /**
  * Convert any bay name format to the current display label.
  */
 function ttn_get_bay_display_name($bay_name) {
-    $canonical = ttn_normalize_bay_name($bay_name);
-    $labels = array(
-        'bay1' => 'Bay 1',
-        'bay2' => 'Bay 2',
-        'bay3' => 'Bay 3',
-        'bay4' => 'Bay 4',
-    );
-
-    return isset($labels[$canonical]) ? $labels[$canonical] : (string) $bay_name;
+    $bay = ttn_booking_get_bay_config($bay_name);
+    return $bay ? $bay['name'] : (string) $bay_name;
 }
 
 /**
@@ -359,13 +410,106 @@ function ttn_booking_get_time_slots() {
 }
 
 function ttn_booking_get_bays() {
-    return array(
-        'bay-1' => 'Bay 1',
-        'bay-2' => 'Bay 2',
-        'bay-3' => 'Bay 3',
-        'bay-4' => 'Bay 4',
-    );
+    $bays = array();
+    foreach (ttn_booking_get_bay_configs() as $bay_key => $bay) {
+        $bays[$bay_key] = $bay['name'];
+    }
+    return $bays;
 }
+
+function ttn_booking_bays_admin_page() {
+    if (!current_user_can('manage_woocommerce')) {
+        wp_die('Unauthorized');
+    }
+
+    if (isset($_POST['ttn_bays_nonce']) && wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['ttn_bays_nonce'])), 'ttn_save_bays')) {
+        $posted_bays = isset($_POST['bays']) && is_array($_POST['bays']) ? $_POST['bays'] : array();
+        $bays = array();
+        foreach ($posted_bays as $bay_key => $posted_bay) {
+            $bay_key = sanitize_key($bay_key);
+            $name = sanitize_text_field(wp_unslash($posted_bay['name'] ?? ''));
+            if (!$bay_key || !$name) {
+                continue;
+            }
+            $bays[$bay_key] = array(
+                'name' => $name,
+                'type' => sanitize_key($posted_bay['type'] ?? 'right-handed'),
+                'location' => sanitize_key($posted_bay['location'] ?? 'front-right'),
+                'premium' => !empty($posted_bay['premium']),
+            );
+        }
+
+        if (isset($_POST['new_bay_name']) && trim(wp_unslash($_POST['new_bay_name'])) !== '') {
+            $new_key = 'bay-' . wp_generate_password(8, false, false);
+            $bays[$new_key] = array(
+                'name' => sanitize_text_field(wp_unslash($_POST['new_bay_name'])),
+                'type' => sanitize_key($_POST['new_bay_type'] ?? 'right-handed'),
+                'location' => sanitize_key($_POST['new_bay_location'] ?? 'front-right'),
+                'premium' => !empty($_POST['new_bay_premium']),
+            );
+        }
+
+        update_option('ttn_bays', $bays);
+        update_option('ttn_standard_hourly_price', max(0, (float) ($_POST['standard_hourly_price'] ?? 50)));
+        update_option('ttn_premium_hourly_price', max(0, (float) ($_POST['premium_hourly_price'] ?? 65)));
+        ttn_booking_sync_bay_products($bays);
+        echo '<div class="notice notice-success is-dismissible"><p>Bay settings saved.</p></div>';
+    }
+
+    $bays = ttn_booking_get_bay_configs();
+    $types = array('right-handed' => 'Right-handed', 'left-handed' => 'Left-handed', 'dual' => 'Dual');
+    $locations = array('front-right' => 'Front right', 'front-left' => 'Front left', 'back-right' => 'Back right', 'back-left' => 'Back left');
+    ?>
+    <div class="wrap">
+        <h1>Booking Bays</h1>
+        <form method="post">
+            <?php wp_nonce_field('ttn_save_bays', 'ttn_bays_nonce'); ?>
+            <table class="widefat striped">
+                <thead><tr><th>Name</th><th>Type</th><th>Location</th><th>Premium</th></tr></thead>
+                <tbody>
+                <?php foreach ($bays as $bay_key => $bay) : ?>
+                    <tr>
+                        <td><input class="regular-text" name="bays[<?php echo esc_attr($bay_key); ?>][name]" value="<?php echo esc_attr($bay['name']); ?>" required></td>
+                        <td><select name="bays[<?php echo esc_attr($bay_key); ?>][type]"><?php foreach ($types as $value => $label) : ?><option value="<?php echo esc_attr($value); ?>" <?php selected($bay['type'], $value); ?>><?php echo esc_html($label); ?></option><?php endforeach; ?></select></td>
+                        <td><select name="bays[<?php echo esc_attr($bay_key); ?>][location]"><?php foreach ($locations as $value => $label) : ?><option value="<?php echo esc_attr($value); ?>" <?php selected($bay['location'], $value); ?>><?php echo esc_html($label); ?></option><?php endforeach; ?></select></td>
+                        <td><label><input type="checkbox" name="bays[<?php echo esc_attr($bay_key); ?>][premium]" value="1" <?php checked(!empty($bay['premium'])); ?>> Premium price</label></td>
+                    </tr>
+                <?php endforeach; ?>
+                <tr>
+                    <td><input class="regular-text" name="new_bay_name" placeholder="New bay name"></td>
+                    <td><select name="new_bay_type"><?php foreach ($types as $value => $label) : ?><option value="<?php echo esc_attr($value); ?>"><?php echo esc_html($label); ?></option><?php endforeach; ?></select></td>
+                    <td><select name="new_bay_location"><?php foreach ($locations as $value => $label) : ?><option value="<?php echo esc_attr($value); ?>"><?php echo esc_html($label); ?></option><?php endforeach; ?></select></td>
+                    <td><label><input type="checkbox" name="new_bay_premium" value="1"> Premium price</label></td>
+                </tr>
+                </tbody>
+            </table>
+            <h2>Hourly prices</h2>
+            <p><label>Standard <input type="number" min="0" step="0.01" name="standard_hourly_price" value="<?php echo esc_attr(get_option('ttn_standard_hourly_price', 50)); ?>"></label>
+            <label>Premium <input type="number" min="0" step="0.01" name="premium_hourly_price" value="<?php echo esc_attr(get_option('ttn_premium_hourly_price', 65)); ?>"></label></p>
+            <p><button type="submit" class="button button-primary">Save Bay Settings</button></p>
+        </form>
+    </div>
+    <?php
+}
+
+function ttn_booking_add_bays_admin_menu() {
+    add_submenu_page('ttn-bookings-dashboard', 'Booking Bays', 'Bays', 'manage_woocommerce', 'ttn-bays', 'ttn_booking_bays_admin_page');
+}
+add_action('admin_menu', 'ttn_booking_add_bays_admin_menu');
+
+function ttn_booking_redirect_legacy_bays_url() {
+    if (!is_admin() || !current_user_can('manage_woocommerce')) {
+        return;
+    }
+
+    $request_path = trim((string) wp_parse_url(wp_unslash($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH), '/');
+    $admin_path = trim((string) wp_parse_url(admin_url(), PHP_URL_PATH), '/');
+    if ($request_path === $admin_path . '/ttn-bays') {
+        wp_safe_redirect(admin_url('admin.php?page=ttn-bays'));
+        exit;
+    }
+}
+add_action('admin_init', 'ttn_booking_redirect_legacy_bays_url');
 
 function ttn_booking_get_booking_records() {
     $posts = get_posts(array(
@@ -378,8 +522,10 @@ function ttn_booking_get_booking_records() {
     $records = array();
 
     foreach ($posts as $post_id) {
+        $stored_bay = get_post_meta($post_id, 'ttn_booking_bay', true);
         $records[] = array(
-            'bay' => ttn_get_bay_display_name(get_post_meta($post_id, 'ttn_booking_bay', true)),
+            'bay' => ttn_get_bay_display_name($stored_bay),
+            'bay_key' => ttn_booking_get_bay_config($stored_bay) ? ttn_booking_get_bay_config($stored_bay)['key'] : $stored_bay,
             'date' => get_post_meta($post_id, 'ttn_booking_date', true),
             'time' => get_post_meta($post_id, 'ttn_booking_time', true),
         );
@@ -397,7 +543,7 @@ function ttn_booking_get_booked_slots($bay, $date) {
 
     foreach ($bookings as $booking) {
         // Normalize stored bay name for comparison
-        $stored_bay = ttn_normalize_bay_name($booking['bay']);
+        $stored_bay = ttn_normalize_bay_name(isset($booking['bay_key']) ? $booking['bay_key'] : $booking['bay']);
         if ($stored_bay === $bay_normalized && $booking['date'] === $date) {
             $booked[] = $booking['time'];
         }
@@ -454,7 +600,7 @@ function ttn_booking_check_availability_for_duration($bay, $date, $start_time_la
         // Check if this slot is booked
         foreach ($bookings as $booking) {
             if ($booking['date'] === $date) {
-                $booking_bay = ttn_normalize_bay_name($booking['bay']);
+                $booking_bay = ttn_normalize_bay_name(isset($booking['bay_key']) ? $booking['bay_key'] : $booking['bay']);
                 
                 if ($booking_bay === $bay_normalized && $booking['time'] === $slot['label']) {
                     return false; // Slot is booked
@@ -477,7 +623,7 @@ function ttn_booking_get_calendar_html($bay = '') {
     $booked_dates = array();
 
     foreach ($bookings as $booking) {
-        if ($bay && ttn_normalize_bay_name($booking['bay']) !== ttn_normalize_bay_name($bay)) {
+        if ($bay && ttn_normalize_bay_name(isset($booking['bay_key']) ? $booking['bay_key'] : $booking['bay']) !== ttn_normalize_bay_name($bay)) {
             continue;
         }
 
@@ -574,6 +720,19 @@ function ttn_booking_add_to_cart_and_redirect($bay_name, $booking_data = array()
     }
 }
 
+function ttn_booking_set_cart_item_price($cart) {
+    if (is_admin() && !defined('DOING_AJAX')) {
+        return;
+    }
+
+    foreach ($cart->get_cart() as $cart_item) {
+        if (!empty($cart_item['ttn_booking']['bay']) && isset($cart_item['data'])) {
+            $cart_item['data']->set_price(ttn_booking_get_hourly_price($cart_item['ttn_booking']['bay']));
+        }
+    }
+}
+add_action('woocommerce_before_calculate_totals', 'ttn_booking_set_cart_item_price');
+
 function ttn_booking_render_cart_item_data($item_data, $cart_item) {
     if (!empty($cart_item['ttn_booking'])) {
         $booking = $cart_item['ttn_booking'];
@@ -641,9 +800,10 @@ function ttn_booking_shortcode() {
             <h3>Select Your Bay</h3>
             <div class="bay-selector" id="ttn-bay-selector">
                 <?php foreach ($bays as $bay_key => $bay_label) : ?>
+                    <?php $bay_config = ttn_booking_get_bay_config($bay_key); ?>
                     <label class="bay-pill">
-                        <input type="radio" name="bay" value="<?php echo esc_attr($bay_label); ?>" data-bay-key="<?php echo esc_attr($bay_key); ?>" />
-                        <span><?php echo esc_html($bay_label); ?></span>
+                        <input type="radio" name="bay" value="<?php echo esc_attr($bay_key); ?>" data-bay-key="<?php echo esc_attr($bay_key); ?>" data-price="<?php echo esc_attr(ttn_booking_get_hourly_price($bay_key)); ?>" />
+                        <span><?php echo esc_html($bay_label); ?><?php if ($bay_config) : ?> <small><?php echo esc_html(ucwords(str_replace('-', ' ', $bay_config['type']))); ?>, <?php echo esc_html(ucwords(str_replace('-', ' ', $bay_config['location']))); ?></small><?php endif; ?></span>
                     </label>
                 <?php endforeach; ?>
             </div>
@@ -707,8 +867,6 @@ function ttn_booking_shortcode() {
         const summary = document.getElementById('ttn-selection-summary');
         const proceedBtn = document.getElementById('ttn-proceed-to-payment');
 
-        const PRICE_PER_HOUR = 50;
-
         let selectedBay = null;
         let selectedDate = null;
         let selectedTime = null;
@@ -734,7 +892,7 @@ function ttn_booking_shortcode() {
 
             const booked = bookingRecords
                 .filter(item => {
-                    const itemBay = (item.bay || '').replace(/\s+/g, '').toLowerCase();
+                    const itemBay = (item.bay_key || item.bay || '').replace(/[\s-]+/g, '').toLowerCase();
                     const selectedBayNorm = selectedBay.replace(/\s+/g, '').toLowerCase();
                     return itemBay === selectedBayNorm && item.date === selectedDate;
                 })
@@ -798,7 +956,8 @@ function ttn_booking_shortcode() {
             const duration = document.querySelector('input[name="duration"]:checked')?.value || 1;
             const players = document.querySelector('input[name="players"]:checked')?.value || 1;
             const time = selectedTime || 'No time selected';
-            const totalPrice = parseInt(duration) * PRICE_PER_HOUR;
+            const hourlyPrice = parseFloat(bayInput?.getAttribute('data-price') || 0);
+            const totalPrice = parseInt(duration) * hourlyPrice;
 
             if (selectedTime) {
                 const startIndex = timeSlots.findIndex(s => s.label === selectedTime);
@@ -1084,6 +1243,10 @@ function ttn_booking_checkout() {
     $new_password = isset($_POST['create_account_password']) ? (string) wp_unslash($_POST['create_account_password']) : '';
     $new_password_confirm = isset($_POST['create_account_password_confirm']) ? (string) wp_unslash($_POST['create_account_password_confirm']) : '';
 
+    if (!ttn_booking_get_bay_config($bay)) {
+        wp_die(__('Please choose a valid bay.', 'tee-time-nexus-bookings'));
+    }
+
     if (!$stripe_token) {
         wp_die(__('Payment token is missing.', 'tee-time-nexus-bookings'));
     }
@@ -1145,7 +1308,7 @@ function ttn_booking_checkout() {
     }
 
     // Create booking entries for each hour
-    $total_price = $duration * 50;
+    $total_price = $duration * ttn_booking_get_hourly_price($bay);
     $parent_booking_id = null;
     $account_created = ttn_booking_maybe_create_account($email, $name, $new_password, $new_password_confirm);
     $booking_user_id = get_current_user_id();
@@ -1262,7 +1425,7 @@ function ttn_add_admin_menu() {
     add_menu_page(
         'Booking Management',
         'Bookings Manager',
-        'manage_options',
+        'manage_woocommerce',
         'ttn-bookings-dashboard',
         'ttn_render_booking_dashboard',
         'dashicons-calendar-alt',
@@ -1273,7 +1436,7 @@ function ttn_add_admin_menu() {
         'ttn-bookings-dashboard',
         'All Bookings',
         'All Bookings',
-        'manage_options',
+        'manage_woocommerce',
         'ttn-bookings-dashboard',
         'ttn_render_booking_dashboard'
     );
@@ -1282,7 +1445,7 @@ function ttn_add_admin_menu() {
         'ttn-bookings-dashboard',
         'Email Template',
         'Email Template',
-        'manage_options',
+        'manage_woocommerce',
         'ttn-booking-email-template',
         'ttn_booking_email_template_page'
     );
@@ -1290,7 +1453,7 @@ function ttn_add_admin_menu() {
 add_action('admin_menu', 'ttn_add_admin_menu');
 
 function ttn_render_booking_dashboard() {
-    if (!current_user_can('manage_options')) {
+    if (!current_user_can('manage_woocommerce')) {
         wp_die('Unauthorized');
     }
 
