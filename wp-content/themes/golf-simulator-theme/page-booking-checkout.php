@@ -36,6 +36,11 @@ if ($start_slot_index !== false && function_exists('ttn_booking_get_end_time_lab
     $display_end_time = ttn_booking_get_end_time_label($time_slots, $start_slot_index, $duration);
 }
 
+$current_user = is_user_logged_in() ? wp_get_current_user() : null;
+$user_name = $current_user ? ($current_user->display_name ?: $current_user->user_firstname) : '';
+$user_email = $current_user ? $current_user->user_email : '';
+$user_phone = $current_user ? get_user_meta($current_user->ID, 'phone_number', true) : '';
+
 if (!$bay || !$date || !$time) {
     echo '<main class="container"><article class="entry-content"><p>Invalid booking selection. Please <a href="' . esc_url(home_url('/book-a-bay/')) . '">go back</a> and try again.</p></article></main>';
     get_footer();
@@ -69,7 +74,7 @@ if (!$bay || !$date || !$time) {
                     Bay
                     <select id="edit-bay">
                         <?php foreach ($bay_options as $bay_key => $bay_option) : ?>
-                            <option value="<?php echo esc_attr($bay_key); ?>" <?php selected($bay, $bay_key); ?>><?php echo esc_html($bay_option); ?></option>
+                            <option value="<?php echo esc_attr($bay_option); ?>" <?php selected($display_bay, $bay_option); ?>><?php echo esc_html($bay_option); ?></option>
                         <?php endforeach; ?>
                     </select>
                 </label>
@@ -108,31 +113,59 @@ if (!$bay || !$date || !$time) {
             <?php wp_nonce_field('ttn_booking_checkout', 'ttn_checkout_nonce'); ?>
 
             <div class="form-grid">
-                <label class="full-width">
-                    Full Name
-                    <input type="text" name="name" placeholder="Your full name" autocomplete="name" required>
-                </label>
-                <label>
-                    Email Address
-                    <input type="email" name="email" placeholder="you@example.com" autocomplete="email" required>
-                </label>
-                <label>
-                    Phone Number
-                    <input type="tel" name="phone" placeholder="(555) 123-4567" autocomplete="tel" required>
-                </label>
-                <?php if (!is_user_logged_in()) : ?>
-                <label class="full-width">
-                    <strong>Create an account (optional)</strong>
-                </label>
-                <p class="full-width checkout-account-note">Set a password to save this booking to an account and manage future reservations. Leave blank to book as a guest.</p>
-                <label>
-                    Password
-                    <input type="password" name="create_account_password" placeholder="At least 6 characters" autocomplete="new-password" minlength="6">
-                </label>
-                <label>
-                    Confirm Password
-                    <input type="password" name="create_account_password_confirm" placeholder="Repeat password" autocomplete="new-password" minlength="6">
-                </label>
+                <?php if ($current_user) : ?>
+                    <div class="full-width logged-in-customer-bar" style="margin-bottom: 8px; padding: 14px 18px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--border-soft); border-radius: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                        <div>
+                            <span style="font-size: 0.82rem; text-transform: uppercase; color: var(--muted); font-weight: 700; display: block;">Booking For Account</span>
+                            <strong style="font-size: 1.05rem; color: #ffffff;"><?php echo esc_html($user_name); ?></strong> <span style="color: var(--muted);">(<?php echo esc_html($user_email); ?>)</span>
+                        </div>
+                        <label class="checkbox-label" style="margin: 0; font-size: 0.9rem; font-weight: 600; cursor: pointer; color: var(--text);">
+                            <input type="checkbox" id="book-for-someone-else" name="book_for_someone_else" value="1" style="width: 18px; height: 18px; accent-color: var(--primary);">
+                            <span>Booking for someone else?</span>
+                        </label>
+                    </div>
+
+                    <div id="customer-info-fields" style="display: none; width: 100%; grid-column: 1 / -1;">
+                        <div class="form-grid" style="margin-top: 6px;">
+                            <label class="full-width">
+                                Guest / Golfer Full Name
+                                <input type="text" id="cust-name" name="name" value="<?php echo esc_attr($user_name); ?>" placeholder="Their full name" autocomplete="name" required>
+                            </label>
+                            <label>
+                                Guest Email Address
+                                <input type="email" id="cust-email" name="email" value="<?php echo esc_attr($user_email); ?>" placeholder="their-email@example.com" autocomplete="email" required>
+                            </label>
+                            <label>
+                                Guest Phone Number
+                                <input type="tel" id="cust-phone" name="phone" value="<?php echo esc_attr($user_phone); ?>" placeholder="(555) 123-4567" autocomplete="tel">
+                            </label>
+                        </div>
+                    </div>
+                <?php else : ?>
+                    <label class="full-width">
+                        Full Name
+                        <input type="text" name="name" placeholder="Your full name" autocomplete="name" required>
+                    </label>
+                    <label>
+                        Email Address
+                        <input type="email" name="email" placeholder="you@example.com" autocomplete="email" required>
+                    </label>
+                    <label>
+                        Phone Number
+                        <input type="tel" name="phone" placeholder="(555) 123-4567" autocomplete="tel">
+                    </label>
+                    <label class="full-width">
+                        <strong>Create an account (optional)</strong>
+                    </label>
+                    <p class="full-width checkout-account-note">Set a password to save this booking to an account and manage future reservations. Leave blank to book as a guest.</p>
+                    <label>
+                        Password
+                        <input type="password" name="create_account_password" placeholder="At least 6 characters" autocomplete="new-password" minlength="6">
+                    </label>
+                    <label>
+                        Confirm Password
+                        <input type="password" name="create_account_password_confirm" placeholder="Repeat password" autocomplete="new-password" minlength="6">
+                    </label>
                 <?php endif; ?>
                 <label class="full-width">
                     <strong>Card Details</strong>
@@ -157,7 +190,7 @@ if (!$bay || !$date || !$time) {
     const bayLabels = <?php echo wp_json_encode($bay_options); ?>;
     const rawTimeSlots = <?php echo wp_json_encode($time_slots); ?>;
     let bookingState = {
-        bay: <?php echo wp_json_encode($bay); ?>,
+        bay: <?php echo wp_json_encode($display_bay); ?>,
         date: <?php echo wp_json_encode($date); ?>,
         time: <?php echo wp_json_encode($time); ?>,
         duration: <?php echo (int) $duration; ?>
@@ -267,6 +300,32 @@ if (!$bay || !$date || !$time) {
 
     syncHiddenFields();
     renderSummary();
+
+    const bookForSomeoneElseCheckbox = document.getElementById('book-for-someone-else');
+    const customerInfoFields = document.getElementById('customer-info-fields');
+    const custName = document.getElementById('cust-name');
+    const custEmail = document.getElementById('cust-email');
+    const custPhone = document.getElementById('cust-phone');
+    const defaultLoggedInName = <?php echo wp_json_encode($user_name); ?>;
+    const defaultLoggedInEmail = <?php echo wp_json_encode($user_email); ?>;
+    const defaultLoggedInPhone = <?php echo wp_json_encode($user_phone); ?>;
+
+    if (bookForSomeoneElseCheckbox && customerInfoFields) {
+        bookForSomeoneElseCheckbox.addEventListener('change', function() {
+            if (this.checked) {
+                customerInfoFields.style.display = 'block';
+                if (custName.value === defaultLoggedInName) custName.value = '';
+                if (custEmail.value === defaultLoggedInEmail) custEmail.value = '';
+                if (custPhone.value === defaultLoggedInPhone) custPhone.value = '';
+                custName.focus();
+            } else {
+                customerInfoFields.style.display = 'none';
+                custName.value = defaultLoggedInName;
+                custEmail.value = defaultLoggedInEmail;
+                custPhone.value = defaultLoggedInPhone;
+            }
+        });
+    }
 
     const stripe = Stripe('pk_test_51TxKQ5GvsZrLG3yulrfaXb1jCaIIIcdEVZv28bF4ilRGFWW2gebxfWnuoJdXMGWzkEAgTU3yuPgniadk4UTIahHm00ZFuicsCP');
     const elements = stripe.elements();

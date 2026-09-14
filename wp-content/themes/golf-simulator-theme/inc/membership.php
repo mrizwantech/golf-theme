@@ -1234,6 +1234,17 @@ function golf_simulator_theme_process_membership_management() {
     }
 
     $user_id = get_current_user_id();
+    $user = wp_get_current_user();
+    $password = (string) ($_POST['account_password'] ?? '');
+
+    if (empty($password) || !wp_check_password($password, $user->user_pass, $user->ID)) {
+        wp_safe_redirect(add_query_arg(
+            array('membership_error' => __('Incorrect account password. Please enter your valid password to confirm membership changes.', 'golf-simulator-theme')),
+            home_url('/my-account/')
+        ));
+        exit;
+    }
+
     $package_name = sanitize_text_field(wp_unslash($_POST['membership_package'] ?? 'PAR'));
     $action = sanitize_text_field(wp_unslash($_POST['membership_action'] ?? 'upgrade'));
 

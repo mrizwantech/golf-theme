@@ -206,6 +206,10 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
                                     <option value="cancel">Cancel</option>
                                 </select>
                             </label>
+                            <label>
+                                Account Password
+                                <input type="password" name="account_password" placeholder="Confirm password" autocomplete="current-password" required style="min-width: 170px; padding: 11px 12px; border: 1px solid var(--border-soft); border-radius: 8px; background: var(--surface); color: var(--text);">
+                            </label>
                             <button type="submit" class="btn btn-primary">Update Membership</button>
                         </div>
                     </form>
@@ -297,6 +301,12 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
                     </div>
                 </div>
 
+                <div class="booking-section">
+                    <h3>Account Password Confirmation</h3>
+                    <p style="margin: 0 0 10px; color: var(--muted); font-size: 0.92rem;">Enter your current password to authorize changes to this reservation.</p>
+                    <input type="password" name="account_password" placeholder="Account password" autocomplete="current-password" required style="width: 100%; max-width: 320px; min-height: 44px; padding: 10px 14px; border-radius: 12px; background: var(--panel-input-bg); border: 1px solid var(--panel-input-border); color: var(--heading); font: inherit; font-size: 0.95rem;">
+                </div>
+
                 <div class="booking-summary" id="edit-selection-summary">
                     Loading reservation details...
                 </div>
@@ -378,6 +388,23 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
                     }
                 }
 
+                const originalPaidAmount = <?php echo floatval(get_post_meta($booking_to_edit['ID'], 'ttn_booking_total_price', true) ?: ($booking_to_edit['duration'] * (function_exists('ttn_booking_get_hourly_price') ? ttn_booking_get_hourly_price($booking_to_edit['bay']) : 50))); ?>;
+
+                function calculateEndTimeLabel(startLabel, durationHours) {
+                    const slot = timeSlots.find(s => s.label === startLabel);
+                    if (!slot || !slot.start) return startLabel;
+                    const parts = slot.start.split(':');
+                    const startMinutes = (parseInt(parts[0], 10) * 60) + parseInt(parts[1], 10);
+                    const endMinutes = startMinutes + (parseInt(durationHours, 10) * 60);
+                    let endHour = Math.floor(endMinutes / 60) % 24;
+                    const endMinute = endMinutes % 60;
+                    const period = endHour >= 12 ? 'PM' : 'AM';
+                    let displayHour = endHour % 12;
+                    if (displayHour === 0) displayHour = 12;
+                    const displayMinute = endMinute < 10 ? '0' + endMinute : endMinute;
+                    return displayHour + ':' + displayMinute + ' ' + period;
+                }
+
                 function updateDurationUI() {
                     document.querySelectorAll('#edit-duration-selector .duration-pill').forEach(pill => pill.classList.remove('selected'));
                     const checkedDur = document.querySelector('input[name="edit_duration_radio"]:checked');
@@ -390,16 +417,9 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
                 }
 
                 function updateTimeRangeUI() {
-                    if (!selectedTime) {
-                        document.querySelectorAll('#edit-time-slots .time-slot-pill').forEach(btn => btn.classList.remove('selected'));
-                        return;
-                    }
-                    const startIndex = timeSlots.findIndex(slot => slot.label === selectedTime);
-                    if (startIndex === -1) return;
-
-                    document.querySelectorAll('#edit-time-slots .time-slot-pill').forEach((btn, index) => {
-                        const shouldSelect = index >= startIndex && index < startIndex + selectedDuration;
-                        btn.classList.toggle('selected', shouldSelect);
+                    document.querySelectorAll('#edit-time-slots .time-slot-pill').forEach(btn => {
+                        const btnTime = btn.getAttribute('data-time');
+                        btn.classList.toggle('selected', selectedTime && btnTime === selectedTime);
                     });
                 }
 
@@ -414,6 +434,7 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
 
                     const booked = bookingRecords
                         .filter(item => {
+                            if (item.id && item.id === currentBookingId) return false;
                             const itemBay = (item.bay_key || item.bay || '').replace(/[\s-]+/g, '').toLowerCase();
                             const currentBayNorm = (selectedBay || '').replace(/[\s-]+/g, '').toLowerCase();
                             return itemBay === currentBayNorm && item.date === selectedDate;
@@ -455,19 +476,28 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
                 function updateSummary() {
                     const bayRadio = document.querySelector('input[name="edit_bay_radio"]:checked');
                     const pricePerHour = parseFloat(bayRadio?.getAttribute('data-price') || 50);
-                    const totalPrice = selectedDuration * pricePerHour;
+                    const newTotal = selectedDuration * pricePerHour;
+                    const diff = newTotal - originalPaidAmount;
 
                     if (selectedTime) {
-                        const startIndex = timeSlots.findIndex(s => s.label === selectedTime);
-                        const endIndex = startIndex !== -1 && startIndex + selectedDuration - 1 < timeSlots.length
-                            ? timeSlots[startIndex + selectedDuration - 1].label
-                            : selectedTime;
+                        const endTime = calculateEndTimeLabel(selectedTime, selectedDuration);
+                        let adjustmentHtml = '';
 
-                        summaryEl.innerHTML = `<strong>${selectedBay}</strong><br/>${selectedDate} • ${selectedTime} - ${endIndex} (${selectedDuration}h)<br/><strong>Total: $${totalPrice.toFixed(2)}</strong>`;
+                        if (diff > 0) {
+                            adjustmentHtml = `<br/><span style="color: var(--primary); font-weight: 700;">Additional Balance Due: $${diff.toFixed(2)}</span>`;
+                            saveBtn.textContent = `Proceed to Payment ($${diff.toFixed(2)})`;
+                        } else if (diff < 0) {
+                            adjustmentHtml = `<br/><span style="color: #6ee7b7; font-weight: 700;">Refund Credit: $${Math.abs(diff).toFixed(2)}</span>`;
+                            saveBtn.textContent = `Save & Process $${Math.abs(diff).toFixed(2)} Refund`;
+                        } else {
+                            saveBtn.textContent = 'Save Changes';
+                        }
+
+                        summaryEl.innerHTML = `<strong>${selectedBay}</strong><br/>${selectedDate} • ${selectedTime} - ${endTime} (${selectedDuration}h)<br/><strong>Updated Total: $${newTotal.toFixed(2)}</strong>${adjustmentHtml}`;
                         hiddenTime.value = selectedTime;
                         saveBtn.disabled = false;
                     } else {
-                        summaryEl.innerHTML = `<strong>${selectedBay}</strong><br/>${selectedDate} • Please select an available start time<br/><strong>$${totalPrice.toFixed(2)}</strong>`;
+                        summaryEl.innerHTML = `<strong>${selectedBay}</strong><br/>${selectedDate} • Please select an available start time`;
                         saveBtn.disabled = true;
                     }
                 }
@@ -540,6 +570,7 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
                             <th>Duration</th>
                             <th>Price</th>
                             <th>Status</th>
+                            <th>Last Updated</th>
                             <th>Reference</th>
                             <th>Actions</th>
                         </tr>
@@ -556,25 +587,43 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
                             }
                             $booking_date = strtotime($booking['date']);
                             $today = strtotime(current_time('Y-m-d'));
+                            $is_cancelled = ($booking['status'] ?? '') === 'cancelled';
                             $is_past = $booking_date < $today;
-                            $price = $booking['duration'] * ttn_booking_get_hourly_price($booking['bay']);
+                            $price = $booking['duration'] * (function_exists('ttn_booking_get_hourly_price') ? ttn_booking_get_hourly_price($booking['bay']) : 50);
                             
                             // Links to edit and cancel using action handlers
                             $edit_url = get_permalink() . '?action=edit&booking_id=' . $booking['ID'];
                             $cancel_url = wp_nonce_url(add_query_arg(array('ttn_cancel_booking_id' => $booking['ID']), admin_url('admin-post.php?action=ttn_cancel_user_booking')), 'ttn_cancel_booking_nonce');
                             ?>
-                            <tr class="<?php echo $is_past ? 'booking-past' : 'booking-upcoming'; ?>">
+                            <tr class="<?php echo $is_cancelled ? 'booking-past' : ($is_past ? 'booking-past' : 'booking-upcoming'); ?>">
                                 <td><?php echo esc_html($booking['bay']); ?></td>
                                 <td><?php echo esc_html($booking['date']); ?></td>
                                 <td><?php echo esc_html($booking['time']); ?> <?php if ($end_time) echo ' - ' . esc_html($end_time); ?></td>
                                 <td><?php echo esc_html($booking['duration']); ?>h</td>
                                 <td>$<?php echo number_format($price, 2); ?></td>
-                                <td><?php echo esc_html($booking['payment_status'] ?: 'Submitted'); ?></td>
+                                <td>
+                                    <?php if ($is_cancelled) : ?>
+                                        <span style="color: #ff5c5c; font-weight: 700;">Cancelled</span>
+                                    <?php elseif (($booking['status'] ?? '') === 'updated') : ?>
+                                        <span style="color: var(--primary); font-weight: 700;">Updated</span>
+                                    <?php else : ?>
+                                        <span style="color: #6ee7b7; font-weight: 600;"><?php echo esc_html($booking['payment_status'] ?: 'Confirmed'); ?></span>
+                                    <?php endif; ?>
+                                </td>
+                                <td>
+                                    <?php if (!empty($booking['updated_at'])) : ?>
+                                        <small style="color: var(--muted);"><?php echo esc_html(mysql2date('M j, Y', $booking['updated_at'])); ?></small>
+                                    <?php else : ?>
+                                        <small style="color: var(--muted);">—</small>
+                                    <?php endif; ?>
+                                </td>
                                 <td><?php echo esc_html($booking['booking_reference']); ?></td>
                                 <td>
-                                    <?php if (!$is_past) : ?>
+                                    <?php if (!$is_past && !$is_cancelled) : ?>
                                         <a href="<?php echo esc_url($edit_url); ?>" class="btn btn-small">Edit</a>
-                                        <a href="<?php echo esc_url($cancel_url); ?>" class="btn btn-small btn-danger" onclick="return confirm('Are you sure you want to cancel this booking?');">Cancel</a>
+                                        <button type="button" class="btn btn-small btn-danger btn-cancel-booking-trigger" data-id="<?php echo esc_attr($booking['ID']); ?>" data-ref="<?php echo esc_attr($booking['booking_reference']); ?>" data-bay="<?php echo esc_attr($booking['bay']); ?>" data-date="<?php echo esc_attr($booking['date']); ?>" data-time="<?php echo esc_attr($booking['time']); ?>">Cancel</button>
+                                    <?php elseif ($is_cancelled) : ?>
+                                        <span class="badge-past" style="background: rgba(239, 68, 68, 0.15); color: #ff5c5c; border: 1px solid rgba(239, 68, 68, 0.4);">Cancelled</span>
                                     <?php else : ?>
                                         <span class="badge-past">Past</span>
                                     <?php endif; ?>
@@ -590,7 +639,86 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
             </p>
         </section>
     </article>
+
+    <!-- Cancel Booking Password Confirmation Modal -->
+    <div id="cancel-booking-modal" class="ttn-modal" style="display: none;">
+        <div class="ttn-modal-backdrop" id="cancel-modal-backdrop"></div>
+        <div class="ttn-modal-card">
+            <div class="booking-panel-head" style="margin-bottom: 16px;">
+                <div class="booking-panel-title" style="font-size: 1.4rem;">Cancel Reservation</div>
+                <button type="button" class="success-close" id="cancel-modal-close" style="position: static;">×</button>
+            </div>
+            
+            <p style="margin: 0 0 8px; color: var(--text); font-size: 1rem;">
+                Are you sure you want to cancel reservation <strong id="modal-cancel-ref" style="color: var(--primary);"></strong>?
+            </p>
+            <p id="modal-cancel-details" style="margin: 0 0 16px; color: var(--muted); font-size: 0.92rem;"></p>
+            
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                <input type="hidden" name="action" value="ttn_cancel_user_booking">
+                <?php wp_nonce_field('ttn_cancel_booking_nonce', 'ttn_cancel_booking_nonce'); ?>
+                <input type="hidden" name="ttn_cancel_booking_id" id="modal-cancel-booking-id" value="">
+                
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 8px; font-weight: 700; color: var(--heading); font-size: 0.92rem;">
+                        Enter Account Password to Confirm
+                    </label>
+                    <input type="password" name="account_password" id="modal-cancel-password" placeholder="Account password" autocomplete="current-password" required style="width: 100%; box-sizing: border-box; min-height: 44px; padding: 10px 14px; border-radius: 12px; background: var(--panel-input-bg); border: 1px solid var(--panel-input-border); color: var(--heading); font: inherit; font-size: 0.95rem;">
+                </div>
+                
+                <div style="display: flex; gap: 12px; justify-content: flex-end; flex-wrap: wrap;">
+                    <button type="button" class="btn btn-secondary" id="cancel-modal-dismiss">Keep Booking</button>
+                    <button type="submit" class="btn btn-small btn-danger" style="width: auto; padding: 10px 20px; min-height: 44px;">Confirm Cancellation</button>
+                </div>
+            </form>
+        </div>
+    </div>
 </main>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var modal = document.getElementById('cancel-booking-modal');
+    var backdrop = document.getElementById('cancel-modal-backdrop');
+    var closeBtn = document.getElementById('cancel-modal-close');
+    var dismissBtn = document.getElementById('cancel-modal-dismiss');
+    var modalRef = document.getElementById('modal-cancel-ref');
+    var modalDetails = document.getElementById('modal-cancel-details');
+    var modalIdInput = document.getElementById('modal-cancel-booking-id');
+    var modalPassInput = document.getElementById('modal-cancel-password');
+
+    function closeModal() {
+        if (modal) {
+            modal.style.display = 'none';
+            if (modalPassInput) modalPassInput.value = '';
+        }
+    }
+
+    if (backdrop) backdrop.addEventListener('click', closeModal);
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (dismissBtn) dismissBtn.addEventListener('click', closeModal);
+
+    document.querySelectorAll('.btn-cancel-booking-trigger').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.preventDefault();
+            var id = this.getAttribute('data-id');
+            var ref = this.getAttribute('data-ref');
+            var bay = this.getAttribute('data-bay');
+            var date = this.getAttribute('data-date');
+            var time = this.getAttribute('data-time');
+
+            if (modalRef) modalRef.textContent = ref;
+            if (modalDetails) modalDetails.textContent = bay + ' on ' + date + ' at ' + time;
+            if (modalIdInput) modalIdInput.value = id;
+            if (modal) {
+                modal.style.display = 'flex';
+                if (modalPassInput) {
+                    setTimeout(function() { modalPassInput.focus(); }, 50);
+                }
+            }
+        });
+    });
+});
+</script>
 <style>
 .account-header {
     margin-bottom: 30px;
@@ -962,6 +1090,43 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
 
 .notice-warning p {
     color: #fcd34d !important;
+}
+
+.ttn-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    box-sizing: border-box;
+}
+
+.ttn-modal-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(4px);
+}
+
+.ttn-modal-card {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    max-width: 460px;
+    background: var(--surface-strong, #121212);
+    border: 1px solid var(--border-soft);
+    border-radius: 20px;
+    padding: 24px 26px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);
+    animation: slideInDown 0.3s ease-out;
 }
 </style>
 
