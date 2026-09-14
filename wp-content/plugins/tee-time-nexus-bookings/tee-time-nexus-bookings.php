@@ -264,9 +264,39 @@ function ttn_booking_get_default_bays() {
 
 function ttn_booking_get_bay_configs() {
     $bays = get_option('ttn_bays', null);
+    $needs_update = false;
+
     if (!is_array($bays) || empty($bays)) {
         $bays = ttn_booking_get_default_bays();
+        $needs_update = true;
+    } else {
+        // Automatically upgrade legacy bay names (Bay 1, Bay 2, etc.) to new names
+        $legacy_map = array(
+            'bay-1' => 'Apex',
+            'bay-2' => 'Nexus',
+            'bay-3' => 'Fairway',
+            'bay-4' => 'Pin',
+        );
+        $legacy_types = array(
+            'bay-1' => 'dual',
+            'bay-2' => 'dual',
+            'bay-3' => 'right-handed',
+            'bay-4' => 'right-handed',
+        );
+        foreach ($legacy_map as $k => $new_name) {
+            if (isset($bays[$k]['name']) && preg_match('/^(Bay\s*[1-4]|tiger|jack|phil|rory)/i', $bays[$k]['name'])) {
+                $bays[$k]['name'] = $new_name;
+                $bays[$k]['type'] = $legacy_types[$k];
+                $needs_update = true;
+            }
+        }
+    }
+
+    if ($needs_update) {
         update_option('ttn_bays', $bays);
+        if (function_exists('ttn_booking_sync_bay_products')) {
+            ttn_booking_sync_bay_products($bays);
+        }
     }
 
     return $bays;
@@ -503,25 +533,6 @@ function ttn_booking_bays_admin_page() {
     </div>
     <?php
 }
-
-function ttn_booking_add_bays_admin_menu() {
-    add_submenu_page('ttn-bookings-dashboard', 'Booking Bays', 'Bays', 'manage_woocommerce', 'ttn-bays', 'ttn_booking_bays_admin_page');
-}
-add_action('admin_menu', 'ttn_booking_add_bays_admin_menu');
-
-function ttn_booking_redirect_legacy_bays_url() {
-    if (!is_admin() || !ttn_booking_can_manage()) {
-        return;
-    }
-
-    $request_path = trim((string) wp_parse_url(wp_unslash($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH), '/');
-    $admin_path = trim((string) wp_parse_url(admin_url(), PHP_URL_PATH), '/');
-    if ($request_path === $admin_path . '/ttn-bays') {
-        wp_safe_redirect(admin_url('admin.php?page=ttn-bays'));
-        exit;
-    }
-}
-add_action('admin_init', 'ttn_booking_redirect_legacy_bays_url');
 
 function ttn_booking_get_booking_records() {
     $posts = get_posts(array(
