@@ -7,13 +7,16 @@ get_header();
 
 // Redirect if not logged in
 if (!is_user_logged_in()) {
-    echo '<main class="container"><article class="entry-content"><p>Please <a href="' . esc_url(wp_login_url(get_permalink())) . '">log in</a> to manage your bookings.</p></article></main>';
+    echo '<main class="container"><article class="entry-content"><p>Please <a href="' . esc_url(golf_simulator_theme_get_login_url(get_permalink())) . '">log in</a> to manage your bookings.</p></article></main>';
     get_footer();
     exit;
 }
 
 $current_user = wp_get_current_user();
 $user_email = $current_user->user_email;
+$membership = golf_simulator_theme_get_user_membership_record($current_user->ID);
+$membership_history = golf_simulator_theme_get_membership_history($current_user->ID);
+$upgrade_balance = get_user_meta($current_user->ID, '_membership_upgrade_balance', true);
 
 // Get user's bookings (CRUD: Read)
 $user_bookings = ttn_get_user_bookings($user_email);
@@ -61,6 +64,14 @@ $message = get_transient('ttn_user_booking_message_' . $user_email);
 if ($message) {
     delete_transient('ttn_user_booking_message_' . $user_email);
 }
+$membership_error = isset($_GET['membership_error']) ? sanitize_text_field(wp_unslash($_GET['membership_error'])) : '';
+$membership_notice = isset($_GET['membership_notice']) ? sanitize_text_field(wp_unslash($_GET['membership_notice'])) : '';
+$membership_updated = isset($_GET['membership_updated']) && '1' === $_GET['membership_updated'];
+$profile_updated = isset($_GET['profile_updated']) && '1' === $_GET['profile_updated'];
+$profile_error = isset($_GET['profile_error']) ? sanitize_text_field(wp_unslash($_GET['profile_error'])) : '';
+$user_phone = get_user_meta($current_user->ID, 'phone_number', true);
+$user_sms_opt_in = get_user_meta($current_user->ID, 'sms_opt_in', true) === '1';
+$user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === '1';
 ?>
 <main class="container">
     <article class="entry-content">
@@ -75,6 +86,134 @@ if ($message) {
                 <p><?php echo esc_html($message['message']); ?></p>
             </div>
         <?php endif; ?>
+
+        <?php if ($membership_error) : ?>
+            <div class="notice notice-error is-dismissible">
+                <p><?php echo esc_html($membership_error); ?></p>
+            </div>
+        <?php elseif ($membership_notice) : ?>
+            <div class="notice notice-warning is-dismissible">
+                <p><?php echo esc_html($membership_notice); ?></p>
+            </div>
+        <?php elseif ($membership_updated) : ?>
+            <div class="notice notice-success is-dismissible">
+                <p>Your membership was updated successfully.</p>
+            </div>
+        <?php endif; ?>
+
+        <?php if ($profile_error) : ?>
+            <div class="notice notice-error is-dismissible">
+                <p><?php echo esc_html($profile_error); ?></p>
+            </div>
+        <?php elseif ($profile_updated) : ?>
+            <div class="notice notice-success is-dismissible">
+                <p>Your communication preferences were updated.</p>
+            </div>
+        <?php endif; ?>
+
+        <section class="account-membership-panel">
+            <h2>Communication Preferences</h2>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                <input type="hidden" name="action" value="golf_simulator_profile_update">
+                <?php wp_nonce_field('ttn_profile_update', 'ttn_profile_nonce'); ?>
+                <div class="form-grid">
+                    <label class="full-width">
+                        Phone Number
+                        <input type="tel" name="phone" value="<?php echo esc_attr($user_phone); ?>" placeholder="(555) 123-4567" autocomplete="tel">
+                    </label>
+                    <label class="full-width checkbox-label">
+                        <input type="checkbox" name="sms_opt_in" value="1" <?php checked($user_sms_opt_in); ?>>
+                        Text me about my bookings and tee time offers
+                    </label>
+                    <label class="full-width checkbox-label">
+                        <input type="checkbox" name="promo_opt_in" value="1" <?php checked($user_promo_opt_in); ?>>
+                        Send me promotional emails and text messages about offers
+                    </label>
+                </div>
+                <button type="submit" class="btn btn-primary" style="margin-top: 16px;">Save Preferences</button>
+            </form>
+        </section>
+
+        <section class="account-membership-panel">
+            <h2>My Membership</h2>
+            <?php if ($membership) : ?>
+                <div class="account-membership-grid">
+                    <div>
+                        <span class="account-membership-label">Membership Tier</span>
+                        <strong><?php echo esc_html($membership->package_name); ?></strong>
+                    </div>
+                    <div>
+                        <span class="account-membership-label">Price</span>
+                        <strong>$<?php echo esc_html(!empty($membership->discount_price) ? $membership->discount_price : $membership->price); ?>/Month</strong>
+                    </div>
+                    <div>
+                        <span class="account-membership-label">Status</span>
+                        <strong><?php echo esc_html(ucfirst($membership->status)); ?></strong>
+                    </div>
+                    <div>
+                        <span class="account-membership-label">Payment</span>
+                        <strong><?php echo esc_html(ucfirst($membership->payment_status)); ?></strong>
+                    </div>
+                </div>
+                <?php if ('pending' === $membership->payment_status) : ?>
+                    <p class="account-membership-note">Your payment was submitted and is waiting for verification.</p>
+                <?php endif; ?>
+                <div class="account-membership-dates">
+                    <span><strong>Joined:</strong> <?php echo esc_html($membership->start_date ? mysql2date(get_option('date_format'), $membership->start_date) : 'Pending'); ?></span>
+                    <span><strong>Payment date:</strong> <?php echo esc_html($membership->payment_date ? mysql2date(get_option('date_format'), $membership->payment_date) : 'Pending'); ?></span>
+                    <span><strong>Next billing:</strong> <?php echo esc_html($membership->next_billing_date ? mysql2date(get_option('date_format'), $membership->next_billing_date) : 'To be confirmed'); ?></span>
+                </div>
+                <?php if (!empty($membership_history)) : ?>
+                    <div class="account-membership-history">
+                        <h3>Membership History</h3>
+                        <div class="account-membership-history-list">
+                            <?php foreach ($membership_history as $history) : ?>
+                                <div class="account-membership-history-item">
+                                    <strong><?php echo esc_html(ucfirst($history->action)); ?></strong>
+                                    <span><?php echo esc_html(mysql2date(get_option('date_format'), $history->created_at)); ?></span>
+                                    <span><?php echo esc_html($history->previous_package ? $history->previous_package . ' to ' : ''); ?><?php echo esc_html($history->new_package); ?></span>
+                                    <?php if ((float) $history->amount > 0) : ?>
+                                        <span><?php echo 'cancel' === $history->action || 'downgrade' === $history->action ? 'Refunded' : 'Charged'; ?> $<?php echo esc_html(number_format((float) $history->amount, 2)); ?></span>
+                                    <?php endif; ?>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                <?php endif; ?>
+                <div class="account-membership-actions">
+                    <h3>Manage Membership</h3>
+                    <?php if ('' !== $upgrade_balance) : ?>
+                        <p class="account-membership-note">Next upgrade balance: <strong>$<?php echo esc_html($upgrade_balance); ?></strong>. Payment remains pending until the upgrade is verified.</p>
+                    <?php endif; ?>
+                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                        <input type="hidden" name="action" value="golf_simulator_membership_manage">
+                        <?php wp_nonce_field('golf_simulator_membership_manage', 'golf_simulator_membership_nonce'); ?>
+                        <div class="account-membership-action-fields">
+                            <label>
+                                Membership tier
+                                <select name="membership_package">
+                                    <?php foreach (golf_simulator_theme_get_default_membership_packages() as $package_key => $package) : ?>
+                                        <option value="<?php echo esc_attr($package_key); ?>" <?php selected($membership->package_name, $package_key); ?>><?php echo esc_html($package['title']); ?></option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </label>
+                            <label>
+                                Action
+                                <select name="membership_action">
+                                    <option value="upgrade">Upgrade</option>
+                                    <option value="downgrade">Downgrade</option>
+                                    <option value="pause">Pause</option>
+                                    <option value="cancel">Cancel</option>
+                                </select>
+                            </label>
+                            <button type="submit" class="btn btn-primary">Update Membership</button>
+                        </div>
+                    </form>
+                </div>
+            <?php else : ?>
+                <p>You do not have a membership yet. <a href="<?php echo esc_url(home_url('/membership/')); ?>" class="text-link">View membership options</a></p>
+            <?php endif; ?>
+        </section>
 
         <?php if ($booking_to_edit) : ?>
         <div style="background: #f8f9fa; padding: 20px; margin-bottom: 20px; border-radius: 5px;">
@@ -127,7 +266,7 @@ if ($message) {
         </div>
         <?php endif; ?>
 
-        <div class="bookings-section">
+        <section class="account-membership-panel bookings-section">
             <h2>My Bookings</h2>
             
             <?php if (empty($user_bookings)) : ?>
@@ -141,6 +280,8 @@ if ($message) {
                             <th>Time</th>
                             <th>Duration</th>
                             <th>Price</th>
+                            <th>Status</th>
+                            <th>Reference</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -149,13 +290,15 @@ if ($message) {
                             <?php
                             $end_time = '';
                             $start_index = array_search($booking['time'], array_column($time_slots, 'label'));
-                            if ($start_index !== false && $start_index + $booking['duration'] - 1 < count($time_slots)) {
-                                $end_time = $time_slots[$start_index + $booking['duration'] - 1]['label'];
+                            if ($start_index !== false) {
+                                $start_minutes = ((int) substr($time_slots[$start_index]['start'], 0, 2) * 60) + (int) substr($time_slots[$start_index]['start'], 3, 2);
+                                $end_minutes = $start_minutes + ((int) $booking['duration'] * 60);
+                                $end_time = date('g:i A', mktime((int) floor($end_minutes / 60) % 24, $end_minutes % 60));
                             }
                             $booking_date = strtotime($booking['date']);
                             $today = strtotime(current_time('Y-m-d'));
                             $is_past = $booking_date < $today;
-                            $price = $booking['duration'] * 50;
+                            $price = $booking['duration'] * ttn_booking_get_hourly_price($booking['bay']);
                             
                             // Links to edit and cancel using action handlers
                             $edit_url = get_permalink() . '?action=edit&booking_id=' . $booking['ID'];
@@ -167,6 +310,8 @@ if ($message) {
                                 <td><?php echo esc_html($booking['time']); ?> <?php if ($end_time) echo ' - ' . esc_html($end_time); ?></td>
                                 <td><?php echo esc_html($booking['duration']); ?>h</td>
                                 <td>$<?php echo number_format($price, 2); ?></td>
+                                <td><?php echo esc_html($booking['payment_status'] ?: 'Submitted'); ?></td>
+                                <td><?php echo esc_html($booking['booking_reference']); ?></td>
                                 <td>
                                     <?php if (!$is_past) : ?>
                                         <a href="<?php echo esc_url($edit_url); ?>" class="btn btn-small">Edit</a>
@@ -182,9 +327,9 @@ if ($message) {
             <?php endif; ?>
 
             <p style="margin-top: 20px;">
-                <a href="<?php echo esc_url(home_url('/book-a-bay/')); ?>" class="btn btn-primary">Book Another Bay</a>
+                <a href="<?php echo esc_url(home_url('/book-a-bay/')); ?>" class="btn btn-primary">Book a Bay</a>
             </p>
-        </div>
+        </section>
     </article>
 </main>
 <style>
@@ -194,6 +339,144 @@ if ($message) {
 
 .account-header p {
     margin: 8px 0;
+}
+
+.account-membership-panel {
+    margin-bottom: 32px;
+    padding: 24px;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+}
+
+.account-membership-panel h2 {
+    margin-top: 0;
+}
+
+.account-membership-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 18px;
+}
+
+.account-membership-grid > div {
+    display: grid;
+    gap: 6px;
+}
+
+.account-membership-label {
+    color: var(--muted);
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.account-membership-note {
+    margin: 18px 0 0;
+    color: var(--muted);
+}
+
+.account-membership-dates {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px 24px;
+    margin-top: 18px;
+    color: var(--muted);
+    font-size: 0.92rem;
+}
+
+.account-membership-history {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-soft);
+}
+
+.account-membership-history h3 {
+    margin: 0 0 14px;
+}
+
+.account-membership-history-list {
+    display: grid;
+    gap: 10px;
+}
+
+.account-membership-history-item {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    padding: 12px 14px;
+    background: var(--surface-soft, #f7faf9);
+    border-radius: 8px;
+    color: #1a2420;
+}
+
+.account-membership-history-item strong {
+    color: #101010;
+}
+
+.account-membership-actions {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-soft);
+}
+
+.account-membership-actions h3 {
+    margin: 0 0 14px;
+}
+
+.account-membership-action-fields {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 14px;
+}
+
+.account-membership-action-fields label {
+    display: grid;
+    gap: 6px;
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.account-membership-action-fields select {
+    min-width: 170px;
+    padding: 11px 12px;
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+}
+
+.membership-upgrade-payment {
+    display: grid;
+    flex: 1 1 260px;
+    gap: 6px;
+    color: var(--muted);
+    font-weight: 700;
+}
+
+.membership-upgrade-payment .stripe-card-element {
+    min-width: 240px;
+}
+
+#membership-upgrade-card-error {
+    color: #b42318;
+    font-weight: 600;
+}
+
+@media (max-width: 700px) {
+    .account-membership-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .account-membership-action-fields,
+    .account-membership-action-fields label,
+    .account-membership-action-fields select,
+    .account-membership-action-fields .btn {
+        width: 100%;
+    }
 }
 
 .bookings-table {

@@ -3,11 +3,200 @@
  * Plugin Name: Tee Time Nexus Bookings
  * Description: Adds an hourly bay reservation workflow with availability checks, calendar visibility, and Stripe-ready checkout for Tee Time Nexus.
  * Version: 1.0.0
- * Author: Copilot
+ * Author: Muhammad Rizwan
  */
 
 if (!defined('ABSPATH')) {
     exit;
+}
+
+function ttn_booking_send_mail($to, $subject, $message) {
+    $sender_name = static function () {
+        return 'Tee Time Nexus';
+    };
+
+    add_filter('wp_mail_from_name', $sender_name);
+    $content_type = strpos($message, '<!doctype html>') === 0
+        ? 'Content-Type: text/html; charset=UTF-8'
+        : 'Content-Type: text/plain; charset=UTF-8';
+    $sent = wp_mail($to, $subject, $message, array($content_type));
+    remove_filter('wp_mail_from_name', $sender_name);
+
+    return $sent;
+}
+
+function ttn_booking_get_end_time_label($time_slots, $start_index, $duration) {
+    $start_slot = isset($time_slots[$start_index]) ? $time_slots[$start_index] : null;
+    if (!$start_slot) {
+        return '';
+    }
+
+    $end_minutes = ((int) substr($start_slot['start'], 0, 2) * 60) + (int) substr($start_slot['start'], 3, 2) + ((int) $duration * 60);
+    $end_hour = (int) floor($end_minutes / 60) % 24;
+    $end_minute = $end_minutes % 60;
+    return date('g:i A', mktime($end_hour, $end_minute));
+}
+
+function ttn_booking_get_account_login_url() {
+    $account_page = get_page_by_path('my-account');
+    $account_url = $account_page ? get_permalink($account_page) : home_url('/my-account/');
+
+    if (function_exists('golf_simulator_theme_get_login_url')) {
+        return golf_simulator_theme_get_login_url($account_url);
+    }
+
+    return wp_login_url($account_url);
+}
+
+function ttn_booking_generate_unique_username($email) {
+    if (function_exists('golf_simulator_theme_generate_unique_username')) {
+        return golf_simulator_theme_generate_unique_username($email);
+    }
+
+    $base = sanitize_user(current(explode('@', $email)), true);
+    if ($base === '') {
+        $base = 'golfer';
+    }
+
+    $username = $base;
+    $suffix = 1;
+    while (username_exists($username)) {
+        $suffix++;
+        $username = $base . $suffix;
+    }
+
+    return $username;
+}
+
+/**
+ * Logs the customer in or creates their account when they opted to set a
+ * password during guest checkout. Returns true if the customer ends up
+ * authenticated (existing session, fresh signup, or successful sign-in).
+ */
+function ttn_booking_maybe_create_account($email, $name, $password, $confirm_password) {
+    if (is_user_logged_in()) {
+        return true;
+    }
+
+    if ($password === '' || $password !== $confirm_password || strlen($password) < 6) {
+        return false;
+    }
+
+    if (email_exists($email)) {
+        $signon = wp_signon(array(
+            'user_login' => $email,
+            'user_password' => $password,
+            'remember' => true,
+        ), is_ssl());
+
+        return !is_wp_error($signon);
+    }
+
+    $user_id = wp_insert_user(array(
+        'user_login' => ttn_booking_generate_unique_username($email),
+        'user_email' => $email,
+        'user_pass' => $password,
+        'display_name' => $name,
+        'first_name' => $name,
+        'role' => 'subscriber',
+    ));
+
+    if (is_wp_error($user_id)) {
+        return false;
+    }
+
+    wp_set_current_user($user_id);
+    wp_set_auth_cookie($user_id, true);
+
+    return true;
+}
+
+function ttn_booking_get_logo_url() {
+    $logo_id = get_theme_mod('custom_logo');
+    $logo_url = $logo_id ? wp_get_attachment_image_url($logo_id, 'full') : '';
+    return $logo_url ? $logo_url : get_site_icon_url(96);
+}
+
+function ttn_booking_render_email($title, $intro, $rows, $account_url, $use_customer_template = true) {
+    $logo_url = ttn_booking_get_logo_url();
+    $details = array();
+
+    foreach ($rows as $label => $value) {
+        $details[] = $label . ': ' . $value;
+    }
+
+    if ($use_customer_template) {
+        $default_subject = 'Your Tee Time Nexus booking details';
+        $default_body = "Hi,\n\n{{intro}}\n\n{{booking_details}}\n\nView your bookings: {{account_url}}\n\nQuestions? Reply to this email and our team will help.\n\nTee Time Nexus";
+        $subject_template = get_option('ttn_booking_email_subject', $default_subject);
+        $body_template = get_option('ttn_booking_email_body', $default_body);
+        $replacements = array(
+            '{{title}}' => $title,
+            '{{intro}}' => $intro,
+            '{{booking_details}}' => implode("\n", $details),
+            '{{account_url}}' => $account_url,
+        );
+        $subject = strtr($subject_template, $replacements);
+        $body = strtr($body_template, $replacements);
+    } else {
+        $subject = $title;
+        $body = $intro . "\n\n" . implode("\n", $details);
+    }
+    $body_html = nl2br(esc_html($body));
+    $logo_html = $logo_url ? '<img src="' . esc_url($logo_url) . '" alt="Tee Time Nexus" style="display:block;max-width:180px;max-height:56px;margin:0 auto 16px;">' : '<div style="font-size:24px;font-weight:800;letter-spacing:.02em;margin-bottom:16px;">Tee Time Nexus</div>';
+
+    return array(
+        'subject' => $subject,
+        'message' => '<!doctype html><html><body style="margin:0;background:#f3f4f6;font-family:Arial,sans-serif;color:#111827;">'
+            . '<div style="padding:32px 12px;"><div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e5e7eb;">'
+            . '<div style="background:#07110b;padding:28px 24px;text-align:center;color:#ffffff;">' . $logo_html . '<div style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#a1e04c;font-weight:700;">Tee Time Nexus</div></div>'
+            . '<div style="padding:28px 28px 32px;"><h1 style="margin:0 0 12px;font-size:24px;line-height:1.2;color:#111827;">' . esc_html($title) . '</h1>'
+            . '<div style="font-size:15px;line-height:1.6;color:#4b5563;">' . $body_html . '</div>'
+            . '</div></div></div></body></html>',
+    );
+}
+
+function ttn_booking_get_customer_email($title, $intro, $rows, $account_url) {
+    $email = ttn_booking_render_email($title, $intro, $rows, $account_url);
+    return $email;
+}
+
+function ttn_booking_email_template_page() {
+    if (!ttn_booking_can_manage()) {
+        wp_die('Unauthorized');
+    }
+
+    $default_subject = 'Your Tee Time Nexus booking details';
+    $default_body = "Hi,\n\n{{intro}}\n\n{{booking_details}}\n\nView your bookings: {{account_url}}\n\nQuestions? Reply to this email and our team will help.\n\nTee Time Nexus";
+
+    if (isset($_POST['ttn_booking_email_template_nonce']) && wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['ttn_booking_email_template_nonce'])), 'ttn_booking_email_template')) {
+        update_option('ttn_booking_email_subject', sanitize_text_field(wp_unslash($_POST['ttn_booking_email_subject'] ?? $default_subject)));
+        update_option('ttn_booking_email_body', sanitize_textarea_field(wp_unslash($_POST['ttn_booking_email_body'] ?? $default_body)));
+        echo '<div class="notice notice-success is-dismissible"><p>Booking email template saved.</p></div>';
+    }
+
+    $subject = get_option('ttn_booking_email_subject', $default_subject);
+    $body = get_option('ttn_booking_email_body', $default_body);
+    ?>
+    <div class="wrap">
+        <h1>Booking Email Template</h1>
+        <p>This template controls customer booking emails. Use these placeholders: <code>{{title}}</code>, <code>{{intro}}</code>, <code>{{booking_details}}</code>, and <code>{{account_url}}</code>.</p>
+        <form method="post">
+            <?php wp_nonce_field('ttn_booking_email_template', 'ttn_booking_email_template_nonce'); ?>
+            <table class="form-table" role="presentation">
+                <tr>
+                    <th scope="row"><label for="ttn_booking_email_subject">Subject</label></th>
+                    <td><input name="ttn_booking_email_subject" id="ttn_booking_email_subject" type="text" class="regular-text" value="<?php echo esc_attr($subject); ?>"></td>
+                </tr>
+                <tr>
+                    <th scope="row"><label for="ttn_booking_email_body">Message</label></th>
+                    <td><textarea name="ttn_booking_email_body" id="ttn_booking_email_body" rows="16" class="large-text code"><?php echo esc_textarea($body); ?></textarea></td>
+                </tr>
+            </table>
+            <p><button type="submit" class="button button-primary">Save Email Template</button></p>
+        </form>
+    </div>
+    <?php
 }
 
 function ttn_booking_register_cpt() {
@@ -18,7 +207,7 @@ function ttn_booking_register_cpt() {
         ),
         'public' => false,
         'show_ui' => true,
-        'show_in_menu' => true,
+        'show_in_menu' => 'ttn-bookings-dashboard',
         'menu_icon' => 'dashicons-calendar-alt',
         'supports' => array('title', 'editor'),
         'capability_type' => 'post',
@@ -40,9 +229,17 @@ function ttn_normalize_string($string) {
  * Normalize bay names to canonical values so old bookings remain compatible.
  */
 function ttn_normalize_bay_name($bay_name) {
-    $normalized = ttn_normalize_string($bay_name);
+    $normalized = str_replace('-', '', ttn_normalize_string($bay_name));
 
     $mapping = array(
+        'apex' => 'bay1',
+        'apexbay' => 'bay1',
+        'nexus' => 'bay2',
+        'nexusbay' => 'bay2',
+        'fairway' => 'bay3',
+        'fairwaybay' => 'bay3',
+        'pin' => 'bay4',
+        'pinbay' => 'bay4',
         'tigerwoodsbay' => 'bay1',
         'jacknicklausbay' => 'bay2',
         'philmickelsonbay' => 'bay3',
@@ -56,19 +253,70 @@ function ttn_normalize_bay_name($bay_name) {
     return isset($mapping[$normalized]) ? $mapping[$normalized] : $normalized;
 }
 
+function ttn_booking_get_default_bays() {
+    return array(
+        'bay-1' => array('name' => 'Apex', 'type' => 'dual', 'location' => 'front-right', 'premium' => false),
+        'bay-2' => array('name' => 'Nexus', 'type' => 'dual', 'location' => 'front-left', 'premium' => false),
+        'bay-3' => array('name' => 'Fairway', 'type' => 'right-handed', 'location' => 'back-right', 'premium' => false),
+        'bay-4' => array('name' => 'Pin', 'type' => 'right-handed', 'location' => 'back-left', 'premium' => false),
+    );
+}
+
+function ttn_booking_get_bay_configs() {
+    $bays = get_option('ttn_bays', null);
+    if (!is_array($bays) || empty($bays)) {
+        $bays = ttn_booking_get_default_bays();
+        update_option('ttn_bays', $bays);
+    }
+
+    return $bays;
+}
+
+function ttn_booking_get_bay_config($bay_name) {
+    $bays = ttn_booking_get_bay_configs();
+    $normalized = ttn_normalize_bay_name($bay_name);
+
+    foreach ($bays as $bay_key => $bay) {
+        if ($normalized === ttn_normalize_bay_name($bay_key) || $normalized === ttn_normalize_bay_name($bay['name'])) {
+            return array_merge(array('key' => $bay_key), $bay);
+        }
+    }
+
+    return null;
+}
+
+function ttn_booking_get_hourly_price($bay_name) {
+    $bay = ttn_booking_get_bay_config($bay_name);
+    $standard_price = (float) get_option('ttn_standard_hourly_price', 50);
+    $premium_price = (float) get_option('ttn_premium_hourly_price', 65);
+
+    return $bay && !empty($bay['premium']) ? $premium_price : $standard_price;
+}
+
+function ttn_booking_sync_bay_products($bays) {
+    if (!function_exists('wc_get_products') || !class_exists('WC_Product_Simple')) {
+        return;
+    }
+
+    foreach ($bays as $bay_key => $bay) {
+        $products = wc_get_products(array('sku' => $bay_key, 'limit' => 1, 'status' => 'any'));
+        $product = !empty($products) ? $products[0] : new WC_Product_Simple();
+        $product->set_name($bay['name'] . ' Rental');
+        $product->set_sku($bay_key);
+        $product->set_regular_price((string) ttn_booking_get_hourly_price($bay_key));
+        $product->set_price((string) ttn_booking_get_hourly_price($bay_key));
+        $product->set_status('publish');
+        $product->set_catalog_visibility('hidden');
+        $product->save();
+    }
+}
+
 /**
  * Convert any bay name format to the current display label.
  */
 function ttn_get_bay_display_name($bay_name) {
-    $canonical = ttn_normalize_bay_name($bay_name);
-    $labels = array(
-        'bay1' => 'Bay 1',
-        'bay2' => 'Bay 2',
-        'bay3' => 'Bay 3',
-        'bay4' => 'Bay 4',
-    );
-
-    return isset($labels[$canonical]) ? $labels[$canonical] : (string) $bay_name;
+    $bay = ttn_booking_get_bay_config($bay_name);
+    return $bay ? $bay['name'] : (string) $bay_name;
 }
 
 /**
@@ -95,6 +343,8 @@ function ttn_get_user_bookings($email) {
                 'players' => intval(get_post_meta($post_id, 'ttn_booking_players', true) ?: 1),
                 'phone' => get_post_meta($post_id, 'ttn_booking_phone', true),
                 'name' => get_post_meta($post_id, 'ttn_booking_name', true),
+                'payment_status' => get_post_meta($post_id, 'ttn_booking_payment_status', true),
+                'booking_reference' => 'TTN-' . str_pad((string) $post_id, 6, '0', STR_PAD_LEFT),
             );
         }
     }
@@ -144,6 +394,9 @@ function ttn_save_booking_metadata($post_id, $booking_data) {
     if (isset($booking_data['parent_id'])) {
         update_post_meta($post_id, 'ttn_booking_parent_id', $booking_data['parent_id']);
     }
+    if (!empty($booking_data['user_id'])) {
+        update_post_meta($post_id, 'ttn_booking_user_id', (int) $booking_data['user_id']);
+    }
 }
 
 function ttn_booking_get_time_slots() {
@@ -165,13 +418,110 @@ function ttn_booking_get_time_slots() {
 }
 
 function ttn_booking_get_bays() {
-    return array(
-        'bay-1' => 'Bay 1',
-        'bay-2' => 'Bay 2',
-        'bay-3' => 'Bay 3',
-        'bay-4' => 'Bay 4',
-    );
+    $bays = array();
+    foreach (ttn_booking_get_bay_configs() as $bay_key => $bay) {
+        $bays[$bay_key] = $bay['name'];
+    }
+    return $bays;
 }
+
+function ttn_booking_can_manage() {
+    return current_user_can('manage_options') || current_user_can('manage_woocommerce');
+}
+
+function ttn_booking_bays_admin_page() {
+    if (!ttn_booking_can_manage()) {
+        wp_die('Unauthorized');
+    }
+
+    if (isset($_POST['ttn_bays_nonce']) && wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['ttn_bays_nonce'])), 'ttn_save_bays')) {
+        $posted_bays = isset($_POST['bays']) && is_array($_POST['bays']) ? $_POST['bays'] : array();
+        $bays = array();
+        foreach ($posted_bays as $bay_key => $posted_bay) {
+            $bay_key = sanitize_key($bay_key);
+            $name = sanitize_text_field(wp_unslash($posted_bay['name'] ?? ''));
+            if (!$bay_key || !$name) {
+                continue;
+            }
+            $bays[$bay_key] = array(
+                'name' => $name,
+                'type' => sanitize_key($posted_bay['type'] ?? 'right-handed'),
+                'location' => sanitize_key($posted_bay['location'] ?? 'front-right'),
+                'premium' => !empty($posted_bay['premium']),
+            );
+        }
+
+        if (isset($_POST['new_bay_name']) && trim(wp_unslash($_POST['new_bay_name'])) !== '') {
+            $new_key = 'bay-' . wp_generate_password(8, false, false);
+            $bays[$new_key] = array(
+                'name' => sanitize_text_field(wp_unslash($_POST['new_bay_name'])),
+                'type' => sanitize_key($_POST['new_bay_type'] ?? 'right-handed'),
+                'location' => sanitize_key($_POST['new_bay_location'] ?? 'front-right'),
+                'premium' => !empty($_POST['new_bay_premium']),
+            );
+        }
+
+        update_option('ttn_bays', $bays);
+        update_option('ttn_standard_hourly_price', max(0, (float) ($_POST['standard_hourly_price'] ?? 50)));
+        update_option('ttn_premium_hourly_price', max(0, (float) ($_POST['premium_hourly_price'] ?? 65)));
+        ttn_booking_sync_bay_products($bays);
+        echo '<div class="notice notice-success is-dismissible"><p>Bay settings saved.</p></div>';
+    }
+
+    $bays = ttn_booking_get_bay_configs();
+    $types = array('right-handed' => 'Right-handed', 'left-handed' => 'Left-handed', 'dual' => 'Dual');
+    $locations = array('front-right' => 'Front right', 'front-left' => 'Front left', 'back-right' => 'Back right', 'back-left' => 'Back left');
+    ?>
+    <div class="wrap">
+        <h1>Booking Bays</h1>
+        <form method="post">
+            <?php wp_nonce_field('ttn_save_bays', 'ttn_bays_nonce'); ?>
+            <table class="widefat striped">
+                <thead><tr><th>Name</th><th>Type</th><th>Location</th><th>Premium</th></tr></thead>
+                <tbody>
+                <?php foreach ($bays as $bay_key => $bay) : ?>
+                    <tr>
+                        <td><input class="regular-text" name="bays[<?php echo esc_attr($bay_key); ?>][name]" value="<?php echo esc_attr($bay['name']); ?>" required></td>
+                        <td><select name="bays[<?php echo esc_attr($bay_key); ?>][type]"><?php foreach ($types as $value => $label) : ?><option value="<?php echo esc_attr($value); ?>" <?php selected($bay['type'], $value); ?>><?php echo esc_html($label); ?></option><?php endforeach; ?></select></td>
+                        <td><select name="bays[<?php echo esc_attr($bay_key); ?>][location]"><?php foreach ($locations as $value => $label) : ?><option value="<?php echo esc_attr($value); ?>" <?php selected($bay['location'], $value); ?>><?php echo esc_html($label); ?></option><?php endforeach; ?></select></td>
+                        <td><label><input type="checkbox" name="bays[<?php echo esc_attr($bay_key); ?>][premium]" value="1" <?php checked(!empty($bay['premium'])); ?>> Premium price</label></td>
+                    </tr>
+                <?php endforeach; ?>
+                <tr>
+                    <td><input class="regular-text" name="new_bay_name" placeholder="New bay name"></td>
+                    <td><select name="new_bay_type"><?php foreach ($types as $value => $label) : ?><option value="<?php echo esc_attr($value); ?>"><?php echo esc_html($label); ?></option><?php endforeach; ?></select></td>
+                    <td><select name="new_bay_location"><?php foreach ($locations as $value => $label) : ?><option value="<?php echo esc_attr($value); ?>"><?php echo esc_html($label); ?></option><?php endforeach; ?></select></td>
+                    <td><label><input type="checkbox" name="new_bay_premium" value="1"> Premium price</label></td>
+                </tr>
+                </tbody>
+            </table>
+            <h2>Hourly prices</h2>
+            <p><label>Standard <input type="number" min="0" step="0.01" name="standard_hourly_price" value="<?php echo esc_attr(get_option('ttn_standard_hourly_price', 50)); ?>"></label>
+            <label>Premium <input type="number" min="0" step="0.01" name="premium_hourly_price" value="<?php echo esc_attr(get_option('ttn_premium_hourly_price', 65)); ?>"></label></p>
+            <p><button type="submit" class="button button-primary">Save Bay Settings</button></p>
+        </form>
+    </div>
+    <?php
+}
+
+function ttn_booking_add_bays_admin_menu() {
+    add_submenu_page('ttn-bookings-dashboard', 'Booking Bays', 'Bays', 'manage_woocommerce', 'ttn-bays', 'ttn_booking_bays_admin_page');
+}
+add_action('admin_menu', 'ttn_booking_add_bays_admin_menu');
+
+function ttn_booking_redirect_legacy_bays_url() {
+    if (!is_admin() || !ttn_booking_can_manage()) {
+        return;
+    }
+
+    $request_path = trim((string) wp_parse_url(wp_unslash($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH), '/');
+    $admin_path = trim((string) wp_parse_url(admin_url(), PHP_URL_PATH), '/');
+    if ($request_path === $admin_path . '/ttn-bays') {
+        wp_safe_redirect(admin_url('admin.php?page=ttn-bays'));
+        exit;
+    }
+}
+add_action('admin_init', 'ttn_booking_redirect_legacy_bays_url');
 
 function ttn_booking_get_booking_records() {
     $posts = get_posts(array(
@@ -184,8 +534,10 @@ function ttn_booking_get_booking_records() {
     $records = array();
 
     foreach ($posts as $post_id) {
+        $stored_bay = get_post_meta($post_id, 'ttn_booking_bay', true);
         $records[] = array(
-            'bay' => ttn_get_bay_display_name(get_post_meta($post_id, 'ttn_booking_bay', true)),
+            'bay' => ttn_get_bay_display_name($stored_bay),
+            'bay_key' => ttn_booking_get_bay_config($stored_bay) ? ttn_booking_get_bay_config($stored_bay)['key'] : $stored_bay,
             'date' => get_post_meta($post_id, 'ttn_booking_date', true),
             'time' => get_post_meta($post_id, 'ttn_booking_time', true),
         );
@@ -203,7 +555,7 @@ function ttn_booking_get_booked_slots($bay, $date) {
 
     foreach ($bookings as $booking) {
         // Normalize stored bay name for comparison
-        $stored_bay = ttn_normalize_bay_name($booking['bay']);
+        $stored_bay = ttn_normalize_bay_name(isset($booking['bay_key']) ? $booking['bay_key'] : $booking['bay']);
         if ($stored_bay === $bay_normalized && $booking['date'] === $date) {
             $booked[] = $booking['time'];
         }
@@ -260,7 +612,7 @@ function ttn_booking_check_availability_for_duration($bay, $date, $start_time_la
         // Check if this slot is booked
         foreach ($bookings as $booking) {
             if ($booking['date'] === $date) {
-                $booking_bay = ttn_normalize_bay_name($booking['bay']);
+                $booking_bay = ttn_normalize_bay_name(isset($booking['bay_key']) ? $booking['bay_key'] : $booking['bay']);
                 
                 if ($booking_bay === $bay_normalized && $booking['time'] === $slot['label']) {
                     return false; // Slot is booked
@@ -283,7 +635,7 @@ function ttn_booking_get_calendar_html($bay = '') {
     $booked_dates = array();
 
     foreach ($bookings as $booking) {
-        if ($bay && ttn_normalize_bay_name($booking['bay']) !== ttn_normalize_bay_name($bay)) {
+        if ($bay && ttn_normalize_bay_name(isset($booking['bay_key']) ? $booking['bay_key'] : $booking['bay']) !== ttn_normalize_bay_name($bay)) {
             continue;
         }
 
@@ -380,6 +732,19 @@ function ttn_booking_add_to_cart_and_redirect($bay_name, $booking_data = array()
     }
 }
 
+function ttn_booking_set_cart_item_price($cart) {
+    if (is_admin() && !defined('DOING_AJAX')) {
+        return;
+    }
+
+    foreach ($cart->get_cart() as $cart_item) {
+        if (!empty($cart_item['ttn_booking']['bay']) && isset($cart_item['data'])) {
+            $cart_item['data']->set_price(ttn_booking_get_hourly_price($cart_item['ttn_booking']['bay']));
+        }
+    }
+}
+add_action('woocommerce_before_calculate_totals', 'ttn_booking_set_cart_item_price');
+
 function ttn_booking_render_cart_item_data($item_data, $cart_item) {
     if (!empty($cart_item['ttn_booking'])) {
         $booking = $cart_item['ttn_booking'];
@@ -441,14 +806,29 @@ function ttn_booking_shortcode() {
             </div>
         <?php endif; ?>
 
-        <p class="booking-note">Select a bay, choose your date and time, then proceed to payment.</p>
+        <p class="booking-note">Select your simulator type, choose a bay, pick your date and time, then proceed to payment.</p>
 
         <div class="booking-section">
-            <h3>Select Your Bay</h3>
+            <h3>Select Simulator Type</h3>
+            <div class="bay-type-selector" id="ttn-bay-type-selector">
+                <label class="bay-type-pill">
+                    <input type="radio" name="bay_type" value="dual" />
+                    <span>Dual (Left & Right Handed)</span>
+                </label>
+                <label class="bay-type-pill">
+                    <input type="radio" name="bay_type" value="right-handed" />
+                    <span>Right-Handed</span>
+                </label>
+            </div>
+        </div>
+
+        <div class="booking-section" id="ttn-bay-section">
+            <h3>Select Bay</h3>
             <div class="bay-selector" id="ttn-bay-selector">
                 <?php foreach ($bays as $bay_key => $bay_label) : ?>
-                    <label class="bay-pill">
-                        <input type="radio" name="bay" value="<?php echo esc_attr($bay_label); ?>" data-bay-key="<?php echo esc_attr($bay_key); ?>" />
+                    <?php $bay_config = ttn_booking_get_bay_config($bay_key); ?>
+                    <label class="bay-pill" data-bay-type="<?php echo esc_attr($bay_config['type'] ?? 'right-handed'); ?>">
+                        <input type="radio" name="bay" value="<?php echo esc_attr($bay_key); ?>" data-bay-key="<?php echo esc_attr($bay_key); ?>" data-bay-type="<?php echo esc_attr($bay_config['type'] ?? 'right-handed'); ?>" data-price="<?php echo esc_attr(ttn_booking_get_hourly_price($bay_key)); ?>" />
                         <span><?php echo esc_html($bay_label); ?></span>
                     </label>
                 <?php endforeach; ?>
@@ -513,8 +893,6 @@ function ttn_booking_shortcode() {
         const summary = document.getElementById('ttn-selection-summary');
         const proceedBtn = document.getElementById('ttn-proceed-to-payment');
 
-        const PRICE_PER_HOUR = 50;
-
         let selectedBay = null;
         let selectedDate = null;
         let selectedTime = null;
@@ -540,7 +918,7 @@ function ttn_booking_shortcode() {
 
             const booked = bookingRecords
                 .filter(item => {
-                    const itemBay = (item.bay || '').replace(/\s+/g, '').toLowerCase();
+                    const itemBay = (item.bay_key || item.bay || '').replace(/[\s-]+/g, '').toLowerCase();
                     const selectedBayNorm = selectedBay.replace(/\s+/g, '').toLowerCase();
                     return itemBay === selectedBayNorm && item.date === selectedDate;
                 })
@@ -579,6 +957,23 @@ function ttn_booking_shortcode() {
             updateSummary();
         }
 
+        function calculateEndTimeLabel(startLabel, durationHours) {
+            const slot = timeSlots.find(s => s.label === startLabel);
+            if (!slot || !slot.start) {
+                return startLabel;
+            }
+            const parts = slot.start.split(':');
+            const startMinutes = (parseInt(parts[0], 10) * 60) + parseInt(parts[1], 10);
+            const endMinutes = startMinutes + (parseInt(durationHours, 10) * 60);
+            let endHour = Math.floor(endMinutes / 60) % 24;
+            const endMinute = endMinutes % 60;
+            const period = endHour >= 12 ? 'PM' : 'AM';
+            let displayHour = endHour % 12;
+            if (displayHour === 0) displayHour = 12;
+            const displayMinute = endMinute < 10 ? '0' + endMinute : endMinute;
+            return displayHour + ':' + displayMinute + ' ' + period;
+        }
+
         function updateSelectedTimeRangeUI() {
             if (!selectedTime) {
                 document.querySelectorAll('.time-slot-pill').forEach(btn => btn.classList.remove('selected'));
@@ -604,13 +999,11 @@ function ttn_booking_shortcode() {
             const duration = document.querySelector('input[name="duration"]:checked')?.value || 1;
             const players = document.querySelector('input[name="players"]:checked')?.value || 1;
             const time = selectedTime || 'No time selected';
-            const totalPrice = parseInt(duration) * PRICE_PER_HOUR;
+            const hourlyPrice = parseFloat(bayInput?.getAttribute('data-price') || 0);
+            const totalPrice = parseInt(duration) * hourlyPrice;
 
             if (selectedTime) {
-                const startIndex = timeSlots.findIndex(s => s.label === selectedTime);
-                const endTime = startIndex + parseInt(duration) - 1 < timeSlots.length 
-                    ? timeSlots[startIndex + parseInt(duration) - 1].label 
-                    : selectedTime;
+                const endTime = calculateEndTimeLabel(selectedTime, duration);
                 
                 summary.innerHTML = `<strong>${bay}</strong><br/>${date} • ${time} - ${endTime} (${duration}h) • ${players}<br/><strong>Total: $${totalPrice}</strong>`;
             } else {
@@ -621,6 +1014,60 @@ function ttn_booking_shortcode() {
                 proceedBtn.disabled = false;
             } else {
                 proceedBtn.disabled = true;
+            }
+        }
+
+        function updateBayTypeSelectionUI() {
+            document.querySelectorAll('.bay-type-pill').forEach(pill => {
+                pill.classList.remove('selected');
+            });
+
+            const checkedType = document.querySelector('input[name="bay_type"]:checked');
+            if (checkedType) {
+                const selectedPill = checkedType.closest('.bay-type-pill');
+                if (selectedPill) {
+                    selectedPill.classList.add('selected');
+                }
+            }
+        }
+
+        function filterBaysByType() {
+            const checkedType = document.querySelector('input[name="bay_type"]:checked')?.value;
+            const baySection = document.getElementById('ttn-bay-section');
+            const bayPills = document.querySelectorAll('.bay-pill');
+
+            if (!checkedType) {
+                bayPills.forEach(pill => {
+                    pill.style.display = 'none';
+                });
+                return;
+            }
+
+            let currentlySelectedBayStillVisible = false;
+            bayPills.forEach(pill => {
+                const pillType = pill.getAttribute('data-bay-type');
+                if (pillType === checkedType) {
+                    pill.style.display = 'inline-flex';
+                    const radio = pill.querySelector('input[name="bay"]');
+                    if (radio && radio.checked) {
+                        currentlySelectedBayStillVisible = true;
+                    }
+                } else {
+                    pill.style.display = 'none';
+                    const radio = pill.querySelector('input[name="bay"]');
+                    if (radio) {
+                        radio.checked = false;
+                    }
+                }
+            });
+
+            if (!currentlySelectedBayStillVisible) {
+                selectedBay = null;
+                selectedTime = null;
+                updateBaySelectionUI();
+                timeSlots_el.style.display = 'none';
+                document.querySelectorAll('.time-slot-pill').forEach(btn => btn.classList.remove('selected'));
+                updateSummary();
             }
         }
 
@@ -666,6 +1113,17 @@ function ttn_booking_shortcode() {
             }
         }
 
+        document.querySelectorAll('input[name="bay_type"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                updateBayTypeSelectionUI();
+                filterBaysByType();
+            });
+            radio.addEventListener('click', () => {
+                updateBayTypeSelectionUI();
+                filterBaysByType();
+            });
+        });
+
         document.querySelectorAll('input[name="bay"]').forEach(radio => {
             radio.addEventListener('change', () => {
                 updateBaySelectionUI();
@@ -703,6 +1161,14 @@ function ttn_booking_shortcode() {
             });
         });
 
+        dateField.addEventListener('click', function() {
+            if (typeof this.showPicker === 'function') {
+                try {
+                    this.showPicker();
+                } catch (err) {}
+            }
+        });
+
         dateField.addEventListener('change', () => {
             selectedTime = null;
             document.querySelectorAll('.time-slot-pill').forEach(btn => btn.classList.remove('selected'));
@@ -729,6 +1195,16 @@ function ttn_booking_shortcode() {
         });
 
         // Initialize from browser-restored state (e.g., when user navigates back).
+        const checkedBayInitial = document.querySelector('input[name="bay"]:checked');
+        if (checkedBayInitial) {
+            const initialType = checkedBayInitial.getAttribute('data-bay-type');
+            const matchingTypeRadio = document.querySelector('input[name="bay_type"][value="' + initialType + '"]');
+            if (matchingTypeRadio) {
+                matchingTypeRadio.checked = true;
+            }
+        }
+        updateBayTypeSelectionUI();
+        filterBaysByType();
         updateBaySelectionUI();
         updateDurationSelectionUI();
         updatePlayersSelectionUI();
@@ -840,16 +1316,19 @@ function ttn_booking_submit() {
             $notes
         );
 
-        wp_mail($admin_email, $subject, $message);
-        wp_mail($email, 'Your Tee Time Nexus booking request', sprintf(
-            "Hi %s,\n\nThanks for your request. We received your reservation for %s on %s from %s for %d player%s.\n\nPlease complete checkout to secure your booking.",
-            $name,
-            $bay,
-            $date,
-            $time,
-            $players,
-            $players === 1 ? '' : 's'
-        ));
+        ttn_booking_send_mail($admin_email, $subject, $message);
+        $customer_email = ttn_booking_get_customer_email(
+            'Reservation request received',
+            'Hi ' . $name . ', we received your reservation request. Please complete checkout to secure your booking.',
+            array(
+                'Bay' => ttn_get_bay_display_name($bay),
+                'Date' => $date,
+                'Time' => $time,
+                'Players' => (string) $players,
+            ),
+            ttn_booking_get_account_login_url()
+        );
+        ttn_booking_send_mail($email, $customer_email['subject'], $customer_email['message']);
     }
 
     $checkout_url = ttn_booking_add_to_cart_and_redirect($bay, array(
@@ -884,6 +1363,12 @@ function ttn_booking_checkout() {
     $duration = isset($_POST['duration']) ? intval($_POST['duration']) : 1;
     $players = isset($_POST['players']) ? max(1, min(4, intval($_POST['players']))) : 1;
     $stripe_token = isset($_POST['stripeToken']) ? sanitize_text_field(wp_unslash($_POST['stripeToken'])) : '';
+    $new_password = isset($_POST['create_account_password']) ? (string) wp_unslash($_POST['create_account_password']) : '';
+    $new_password_confirm = isset($_POST['create_account_password_confirm']) ? (string) wp_unslash($_POST['create_account_password_confirm']) : '';
+
+    if (!ttn_booking_get_bay_config($bay)) {
+        wp_die(__('Please choose a valid bay.', 'tee-time-nexus-bookings'));
+    }
 
     if (!$stripe_token) {
         wp_die(__('Payment token is missing.', 'tee-time-nexus-bookings'));
@@ -946,8 +1431,10 @@ function ttn_booking_checkout() {
     }
 
     // Create booking entries for each hour
-    $total_price = $duration * 50;
+    $total_price = $duration * ttn_booking_get_hourly_price($bay);
     $parent_booking_id = null;
+    $account_created = ttn_booking_maybe_create_account($email, $name, $new_password, $new_password_confirm);
+    $booking_user_id = get_current_user_id();
 
     for ($i = 0; $i < $duration; $i++) {
         $hour_slot = $time_slots[$start_index + $i];
@@ -983,9 +1470,10 @@ function ttn_booking_checkout() {
                 'duration' => $duration,
                 'players' => $players,
                 'total_price' => $total_price,
-                'payment_status' => 'completed',
+                'payment_status' => 'Payment submitted - transaction verification required',
                 'stripe_token' => $stripe_token,
                 'parent_id' => ($i > 0) ? $parent_booking_id : null,
+                'user_id' => $booking_user_id,
             ));
 
             // Keep track of parent booking
@@ -997,54 +1485,55 @@ function ttn_booking_checkout() {
 
     // Send confirmation email (only once, from first booking)
     if ($parent_booking_id) {
-        $end_time_label = $time_slots[$start_index + $duration - 1]['label'];
-        
-        $subject = 'Your Tee Time Nexus Booking Confirmation';
-        $message = sprintf(
-            "Dear %s,\n\nYour reservation has been confirmed!\n\n" .
-            "Bay: %s\n" .
-            "Date: %s\n" .
-            "Time: %s - %s (%d hours)\n" .
-            "Amount Paid: $%.2f\n\n" .
-            "Thank you for booking with Tee Time Nexus!\n\n" .
-            "Questions? Reply to this email.",
-            $name,
-            $bay,
-            $date,
-            $selected_slot['label'],
-            $end_time_label,
-            $duration,
-            $total_price
+        $end_time_label = ttn_booking_get_end_time_label($time_slots, $start_index, $duration);
+        $account_url = ttn_booking_get_account_login_url();
+        $booking_reference = 'TTN-' . str_pad((string) $parent_booking_id, 6, '0', STR_PAD_LEFT);
+        $payment_status = 'Payment submitted - transaction verification required';
+
+        $intro = 'Hi ' . $name . ', your reservation details are below. Keep this email for your records.';
+        if ($account_created && $new_password !== '') {
+            $intro .= ' We also set up your account so you can log in with this email to manage future bookings.';
+        }
+        $customer_email = ttn_booking_render_email(
+            'Reservation received',
+            $intro,
+            array(
+                'Booking reference' => $booking_reference,
+                'Bay' => ttn_get_bay_display_name($bay),
+                'Date' => $date,
+                'Time' => $selected_slot['label'] . ' - ' . $end_time_label,
+                'Duration' => $duration . ($duration === 1 ? ' hour' : ' hours'),
+                'Players' => (string) $players,
+                'Amount' => '$' . number_format($total_price, 2),
+                'Payment status' => $payment_status,
+            ),
+            $account_url,
+            false
         );
-        wp_mail($email, $subject, $message);
+        ttn_booking_send_mail($email, $customer_email['subject'], $customer_email['message']);
 
         // Send admin notification
         $admin_email = get_option('admin_email');
         $admin_subject = 'New Booking: ' . $name . ' - ' . $bay;
-        $admin_message = sprintf(
-            "New booking received!\n\n" .
-            "Name: %s\n" .
-            "Email: %s\n" .
-            "Phone: %s\n" .
-            "Bay: %s\n" .
-            "Date: %s\n" .
-            "Time: %s - %s\n" .
-            "Duration: %d hours\n" .
-            "Players: %d\n" .
-            "Amount: $%.2f\n" .
-            "Payment Status: Completed",
-            $name,
-            $email,
-            $phone,
-            $bay,
-            $date,
-            $selected_slot['label'],
-            $end_time_label,
-            $duration,
-            $players,
-            $total_price
+        $admin_email_message = ttn_booking_render_email(
+            'New booking received',
+            'A new reservation was submitted through the Tee Time Nexus booking form.',
+            array(
+                'Booking reference' => $booking_reference,
+                'Customer' => $name,
+                'Email' => $email,
+                'Phone' => $phone,
+                'Bay' => ttn_get_bay_display_name($bay),
+                'Date' => $date,
+                'Time' => $selected_slot['label'] . ' - ' . $end_time_label,
+                'Duration' => $duration . ($duration === 1 ? ' hour' : ' hours'),
+                'Players' => (string) $players,
+                'Amount' => '$' . number_format($total_price, 2),
+                'Payment status' => $payment_status,
+            ),
+            $account_url
         );
-        wp_mail($admin_email, $admin_subject, $admin_message);
+        ttn_booking_send_mail($admin_email, $admin_subject, $admin_email_message['message']);
     }
 
     wp_safe_redirect(home_url('/book-a-bay/?booking=confirmed&id=' . $parent_booking_id));
@@ -1059,7 +1548,7 @@ function ttn_add_admin_menu() {
     add_menu_page(
         'Booking Management',
         'Bookings Manager',
-        'manage_options',
+        'manage_woocommerce',
         'ttn-bookings-dashboard',
         'ttn_render_booking_dashboard',
         'dashicons-calendar-alt',
@@ -1068,17 +1557,17 @@ function ttn_add_admin_menu() {
 
     add_submenu_page(
         'ttn-bookings-dashboard',
-        'All Bookings',
-        'All Bookings',
-        'manage_options',
-        'ttn-bookings-dashboard',
-        'ttn_render_booking_dashboard'
+        'Email Template',
+        'Email Template',
+        'manage_woocommerce',
+        'ttn-booking-email-template',
+        'ttn_booking_email_template_page'
     );
 }
 add_action('admin_menu', 'ttn_add_admin_menu');
 
 function ttn_render_booking_dashboard() {
-    if (!current_user_can('manage_options')) {
+    if (!ttn_booking_can_manage()) {
         wp_die('Unauthorized');
     }
 
@@ -1173,15 +1662,10 @@ function ttn_render_booking_dashboard() {
                         <td><input type="tel" id="phone" name="phone" value="<?php echo esc_attr($booking_to_edit['phone']); ?>"></td>
                     </tr>
                     <tr>
-                        <th><label for="bay">Bay</label></th>
+                        <th><label>Bay</label></th>
                         <td>
-                            <select id="bay" name="bay" required>
-                                <?php foreach ($bays as $key => $label) : ?>
-                                    <option value="<?php echo esc_attr($label); ?>" <?php selected($booking_to_edit['bay'], $label); ?>>
-                                        <?php echo esc_html($label); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
+                            <strong><?php echo esc_html($booking_to_edit['bay']); ?></strong>
+                            <input type="hidden" name="bay" value="<?php echo esc_attr($booking_to_edit['bay']); ?>">
                         </td>
                     </tr>
                     <tr>
@@ -1289,22 +1773,18 @@ function ttn_send_booking_reminder($booking_id) {
     $date = get_post_meta($booking_id, 'ttn_booking_date', true);
     $time = get_post_meta($booking_id, 'ttn_booking_time', true);
 
-    $subject = 'Reminder: Your Upcoming Tee Time Nexus Booking';
-    $message = sprintf(
-        "Hi %s,\n\nThis is a friendly reminder about your upcoming reservation:\n\n" .
-        "Bay: %s\n" .
-        "Date: %s\n" .
-        "Time: %s\n\n" .
-        "We look forward to seeing you!\n\n" .
-        "Best regards,\n" .
-        "Tee Time Nexus Team",
-        $name,
-        $bay,
-        $date,
-        $time
+    $customer_email = ttn_booking_get_customer_email(
+        'Upcoming reservation reminder',
+        'Hi ' . $name . ', this is a friendly reminder about your upcoming reservation.',
+        array(
+            'Bay' => $bay,
+            'Date' => $date,
+            'Time' => $time,
+        ),
+        ttn_booking_get_account_login_url()
     );
 
-    wp_mail($email, $subject, $message);
+    ttn_booking_send_mail($email, $customer_email['subject'], $customer_email['message']);
 }
 
 // ===== USER-FACING CRUD HANDLERS (BUSINESS LOGIC) =====
@@ -1344,10 +1824,22 @@ function ttn_crud_update_user_booking($booking_id, $user_email, $booking_data) {
     }
 
     // Update the booking
-    ttn_save_booking_metadata($booking_id, array(
+    $update_meta = array(
         'date' => $booking_data['date'],
         'time' => $booking_data['time'],
         'duration' => intval($booking_data['duration']),
+    );
+    if (!empty($booking_data['bay'])) {
+        $update_meta['bay'] = $booking_data['bay'];
+    }
+
+    ttn_save_booking_metadata($booking_id, $update_meta);
+
+    $booking_name = get_post_meta($booking_id, 'ttn_booking_name', true);
+    $bay_to_save = !empty($booking_data['bay']) ? $booking_data['bay'] : get_post_meta($booking_id, 'ttn_booking_bay', true);
+    wp_update_post(array(
+        'ID' => $booking_id,
+        'post_title' => $booking_name . ' - ' . $bay_to_save . ' - ' . $booking_data['date'],
     ));
 
     return array('success' => true, 'message' => 'Booking updated successfully.');
@@ -1395,6 +1887,7 @@ function ttn_handle_user_update_booking() {
     $user_email = wp_get_current_user()->user_email;
     
     $booking_data = array(
+        'bay' => sanitize_text_field(wp_unslash($_POST['bay'] ?? '')),
         'date' => sanitize_text_field(wp_unslash($_POST['date'] ?? '')),
         'time' => sanitize_text_field(wp_unslash($_POST['time'] ?? '')),
         'duration' => intval($_POST['duration'] ?? 1),

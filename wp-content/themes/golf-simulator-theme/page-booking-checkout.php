@@ -18,10 +18,23 @@ if (!function_exists('ttn_booking_get_time_slots') || !function_exists('ttn_book
 
 $time_slots = ttn_booking_get_time_slots();
 $bay_options = ttn_booking_get_bays();
+$bay_prices = array();
+foreach ($bay_options as $bay_k => $bay_l) {
+    $p = ttn_booking_get_hourly_price($bay_k);
+    $bay_prices[$bay_k] = $p;
+    $bay_prices[$bay_l] = $p;
+}
 $display_bay = ttn_get_bay_display_name($bay);
 $total_price = $duration * ttn_booking_get_hourly_price($bay);
 $formatted_total_price = number_format($total_price, 2);
 $time_slot_labels = array_column($time_slots, 'label');
+
+// Calculate initial formatted end time
+$start_slot_index = array_search($time, $time_slot_labels);
+$display_end_time = '';
+if ($start_slot_index !== false && function_exists('ttn_booking_get_end_time_label')) {
+    $display_end_time = ttn_booking_get_end_time_label($time_slots, $start_slot_index, $duration);
+}
 
 if (!$bay || !$date || !$time) {
     echo '<main class="container"><article class="entry-content"><p>Invalid booking selection. Please <a href="' . esc_url(home_url('/book-a-bay/')) . '">go back</a> and try again.</p></article></main>';
@@ -38,7 +51,7 @@ if (!$bay || !$date || !$time) {
             <h3>Your Reservation</h3>
             <p>
                 <strong id="summary-bay"><?php echo esc_html($display_bay); ?></strong><br/>
-                <span id="summary-date-time"><?php echo esc_html($date); ?> at <?php echo esc_html($time); ?></span><br/>
+                <span id="summary-date-time"><?php echo esc_html($date); ?> at <?php echo esc_html($time); ?><?php echo $display_end_time ? ' - ' . esc_html($display_end_time) : ''; ?></span><br/>
                 <strong id="summary-duration"><?php echo esc_html($duration); ?> <?php echo $duration === 1 ? 'Hour' : 'Hours'; ?></strong><br/>
                 <strong id="summary-total">Total: $<?php echo esc_html($formatted_total_price); ?></strong>
             </p>
@@ -140,9 +153,9 @@ if (!$bay || !$date || !$time) {
 <script src="https://js.stripe.com/v3/"></script>
 <script>
 (function() {
-    const bayPrices = <?php echo wp_json_encode(array_map('ttn_booking_get_hourly_price', array_keys($bay_options))); ?>;
+    const bayPrices = <?php echo wp_json_encode($bay_prices); ?>;
     const bayLabels = <?php echo wp_json_encode($bay_options); ?>;
-    const timeSlots = <?php echo wp_json_encode($time_slot_labels); ?>;
+    const rawTimeSlots = <?php echo wp_json_encode($time_slots); ?>;
     let bookingState = {
         bay: <?php echo wp_json_encode($bay); ?>,
         date: <?php echo wp_json_encode($date); ?>,
@@ -172,17 +185,25 @@ if (!$bay || !$date || !$time) {
     const submitBtn = document.getElementById('submit-btn');
 
     function getFormattedTotal() {
-        return (bookingState.duration * parseFloat(bayPrices[bookingState.bay] || 0)).toFixed(2);
+        const hourly = parseFloat(bayPrices[bookingState.bay]) || 50;
+        return (bookingState.duration * hourly).toFixed(2);
     }
 
     function getEndTime(startLabel, durationHours) {
-        const startIndex = timeSlots.indexOf(startLabel);
-        if (startIndex === -1) {
-            return startLabel;
+        const slot = rawTimeSlots.find(s => s.label === startLabel);
+        if (!slot || !slot.start) {
+            return '';
         }
-
-        const endIndex = Math.min(startIndex + durationHours - 1, timeSlots.length - 1);
-        return timeSlots[endIndex];
+        const parts = slot.start.split(':');
+        const startMinutes = (parseInt(parts[0], 10) * 60) + parseInt(parts[1], 10);
+        const endMinutes = startMinutes + (parseInt(durationHours, 10) * 60);
+        let endHour = Math.floor(endMinutes / 60) % 24;
+        const endMinute = endMinutes % 60;
+        const period = endHour >= 12 ? 'PM' : 'AM';
+        let displayHour = endHour % 12;
+        if (displayHour === 0) displayHour = 12;
+        const displayMinute = endMinute < 10 ? '0' + endMinute : endMinute;
+        return displayHour + ':' + displayMinute + ' ' + period;
     }
 
     function getCheckoutTotalText() {
@@ -214,6 +235,16 @@ if (!$bay || !$date || !$time) {
 
         syncHiddenFields();
         renderSummary();
+    }
+
+    if (editDate) {
+        editDate.addEventListener('click', function() {
+            if (typeof this.showPicker === 'function') {
+                try {
+                    this.showPicker();
+                } catch (err) {}
+            }
+        });
     }
 
     toggleEditButton.addEventListener('click', function() {

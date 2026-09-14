@@ -187,7 +187,6 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
                     <?php endif; ?>
                     <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                         <input type="hidden" name="action" value="golf_simulator_membership_manage">
-                        <input type="hidden" name="stripeToken" id="membership-upgrade-stripe-token">
                         <?php wp_nonce_field('golf_simulator_membership_manage', 'golf_simulator_membership_nonce'); ?>
                         <div class="account-membership-action-fields">
                             <label>
@@ -207,11 +206,6 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
                                     <option value="cancel">Cancel</option>
                                 </select>
                             </label>
-                            <div class="membership-upgrade-payment">
-                                <span>Card for upgrade payment</span>
-                                <div class="stripe-card-element" id="membership-upgrade-card"></div>
-                                <small id="membership-upgrade-card-error" role="alert"></small>
-                            </div>
                             <button type="submit" class="btn btn-primary">Update Membership</button>
                         </div>
                     </form>
@@ -222,54 +216,313 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
         </section>
 
         <?php if ($booking_to_edit) : ?>
-        <div style="background: #f8f9fa; padding: 20px; margin-bottom: 20px; border-radius: 5px;">
-            <h2>Edit Booking</h2>
-            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+        <?php
+        $bays = function_exists('ttn_booking_get_bays') ? ttn_booking_get_bays() : array();
+        $all_booking_records = function_exists('ttn_booking_get_booking_records') ? ttn_booking_get_booking_records() : array();
+        $edit_bay_config = function_exists('ttn_booking_get_bay_config') ? ttn_booking_get_bay_config($booking_to_edit['bay']) : null;
+        $edit_bay_type = $edit_bay_config['type'] ?? 'dual';
+        ?>
+        <section class="booking-card edit-booking-card" style="margin-bottom: 32px;">
+            <div class="booking-panel-head">
+                <div class="booking-panel-title">Edit Reservation</div>
+                <span class="booking-live-badge">Real-time availability</span>
+            </div>
+            <p class="booking-note">Modify your simulator type, bay, date, duration, or start time below and save changes.</p>
+
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" id="ttn-edit-booking-form">
                 <input type="hidden" name="action" value="ttn_update_user_booking">
                 <?php wp_nonce_field('ttn_update_user_booking_nonce'); ?>
                 <input type="hidden" name="booking_id" value="<?php echo esc_attr($booking_to_edit['ID']); ?>">
-                
-                <table class="form-table">
-                    <tr>
-                        <th><label>Bay</label></th>
-                        <td><strong><?php echo esc_html($booking_to_edit['bay']); ?></strong></td>
-                    </tr>
-                    <tr>
-                        <th><label for="date">Date</label></th>
-                        <td><input type="date" id="date" name="date" value="<?php echo esc_attr($booking_to_edit['date']); ?>" min="<?php echo esc_attr(current_time('Y-m-d')); ?>" required></td>
-                    </tr>
-                    <tr>
-                        <th><label for="time">Start Time</label></th>
-                        <td>
-                            <select id="time" name="time" required>
-                                <?php foreach ($time_slots as $slot) : ?>
-                                    <option value="<?php echo esc_attr($slot['label']); ?>" <?php selected($booking_to_edit['time'], $slot['label']); ?>>
-                                        <?php echo esc_html($slot['label']); ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th><label for="duration">Duration (Hours)</label></th>
-                        <td>
-                            <select id="duration" name="duration" required>
-                                <?php for ($h = 1; $h <= 8; $h++) : ?>
-                                    <option value="<?php echo esc_attr($h); ?>" <?php selected($booking_to_edit['duration'], $h); ?>>
-                                        <?php echo esc_html($h); ?> <?php echo $h === 1 ? 'Hour' : 'Hours'; ?>
-                                    </option>
-                                <?php endfor; ?>
-                            </select>
-                        </td>
-                    </tr>
-                </table>
+                <input type="hidden" name="bay" id="edit-hidden-bay" value="<?php echo esc_attr($booking_to_edit['bay']); ?>">
+                <input type="hidden" name="date" id="edit-hidden-date" value="<?php echo esc_attr($booking_to_edit['date']); ?>">
+                <input type="hidden" name="time" id="edit-hidden-time" value="<?php echo esc_attr($booking_to_edit['time']); ?>">
+                <input type="hidden" name="duration" id="edit-hidden-duration" value="<?php echo esc_attr($booking_to_edit['duration']); ?>">
 
-                <p>
-                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                <div class="booking-section">
+                    <h3>Select Simulator Type</h3>
+                    <div class="bay-type-selector" id="edit-bay-type-selector">
+                        <label class="bay-type-pill">
+                            <input type="radio" name="edit_bay_type" value="dual" <?php checked($edit_bay_type, 'dual'); ?> />
+                            <span>Dual (Left & Right Handed)</span>
+                        </label>
+                        <label class="bay-type-pill">
+                            <input type="radio" name="edit_bay_type" value="right-handed" <?php checked($edit_bay_type, 'right-handed'); ?> />
+                            <span>Right-Handed</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="booking-section" id="edit-bay-section">
+                    <h3>Select Bay</h3>
+                    <div class="bay-selector" id="edit-bay-selector">
+                        <?php foreach ($bays as $bay_k => $bay_l) : ?>
+                            <?php
+                            $b_cfg = function_exists('ttn_booking_get_bay_config') ? ttn_booking_get_bay_config($bay_k) : null;
+                            $b_type = $b_cfg['type'] ?? 'right-handed';
+                            $is_checked = ($booking_to_edit['bay'] === $bay_l || $booking_to_edit['bay'] === $bay_k);
+                            ?>
+                            <label class="bay-pill" data-bay-type="<?php echo esc_attr($b_type); ?>">
+                                <input type="radio" name="edit_bay_radio" value="<?php echo esc_attr($bay_l); ?>" data-bay-key="<?php echo esc_attr($bay_k); ?>" data-bay-type="<?php echo esc_attr($b_type); ?>" data-price="<?php echo esc_attr(function_exists('ttn_booking_get_hourly_price') ? ttn_booking_get_hourly_price($bay_k) : 50); ?>" <?php checked($is_checked); ?> />
+                                <span><?php echo esc_html($bay_l); ?></span>
+                            </label>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+
+                <div class="booking-section">
+                    <h3>Select Date</h3>
+                    <input type="date" id="edit-date-input" value="<?php echo esc_attr($booking_to_edit['date']); ?>" min="<?php echo esc_attr(current_time('Y-m-d')); ?>" required>
+                </div>
+
+                <div class="booking-section">
+                    <h3>Duration (Hours)</h3>
+                    <div class="duration-selector" id="edit-duration-selector">
+                        <?php for ($h = 1; $h <= 8; $h++) : ?>
+                            <label class="duration-pill">
+                                <input type="radio" name="edit_duration_radio" value="<?php echo esc_attr($h); ?>" data-duration="<?php echo esc_attr($h); ?>" <?php checked($h, (int) $booking_to_edit['duration']); ?> />
+                                <span><?php echo esc_html($h); ?> <?php echo $h === 1 ? 'Hour' : 'Hours'; ?></span>
+                            </label>
+                        <?php endfor; ?>
+                    </div>
+                </div>
+
+                <div class="booking-section">
+                    <h3>Select Start Time</h3>
+                    <div class="time-slots" id="edit-time-slots">
+                        <?php foreach ($time_slots as $slot) : ?>
+                            <button type="button" class="time-slot-pill" data-time="<?php echo esc_attr($slot['label']); ?>" data-start="<?php echo esc_attr($slot['start']); ?>">
+                                <?php echo esc_html($slot['label']); ?>
+                            </button>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+
+                <div class="booking-summary" id="edit-selection-summary">
+                    Loading reservation details...
+                </div>
+
+                <div style="display: flex; gap: 12px; margin-top: 20px;">
+                    <button type="submit" class="btn btn-primary" id="edit-save-btn">Save Changes</button>
                     <a href="<?php echo esc_url(get_permalink()); ?>" class="btn btn-secondary">Cancel</a>
-                </p>
+                </div>
             </form>
-        </div>
+
+            <script>
+            (function() {
+                const bookingRecords = <?php echo wp_json_encode($all_booking_records); ?>;
+                const timeSlots = <?php echo wp_json_encode($time_slots); ?>;
+                const currentBookingId = <?php echo (int) $booking_to_edit['ID']; ?>;
+                const dateField = document.getElementById('edit-date-input');
+                const timeSlotsEl = document.getElementById('edit-time-slots');
+                const summaryEl = document.getElementById('edit-selection-summary');
+                const saveBtn = document.getElementById('edit-save-btn');
+
+                const hiddenBay = document.getElementById('edit-hidden-bay');
+                const hiddenDate = document.getElementById('edit-hidden-date');
+                const hiddenTime = document.getElementById('edit-hidden-time');
+                const hiddenDuration = document.getElementById('edit-hidden-duration');
+
+                let selectedBay = <?php echo wp_json_encode($booking_to_edit['bay']); ?>;
+                let selectedDate = <?php echo wp_json_encode($booking_to_edit['date']); ?>;
+                let selectedTime = <?php echo wp_json_encode($booking_to_edit['time']); ?>;
+                let selectedDuration = <?php echo (int) $booking_to_edit['duration']; ?>;
+
+                function updateBayTypeUI() {
+                    document.querySelectorAll('.bay-type-pill').forEach(pill => pill.classList.remove('selected'));
+                    const checkedType = document.querySelector('input[name="edit_bay_type"]:checked');
+                    if (checkedType) {
+                        const parent = checkedType.closest('.bay-type-pill');
+                        if (parent) parent.classList.add('selected');
+                    }
+                }
+
+                function filterBaysByType() {
+                    const checkedType = document.querySelector('input[name="edit_bay_type"]:checked')?.value;
+                    const bayPills = document.querySelectorAll('#edit-bay-selector .bay-pill');
+
+                    if (!checkedType) return;
+
+                    let bayStillVisible = false;
+                    bayPills.forEach(pill => {
+                        const pillType = pill.getAttribute('data-bay-type');
+                        if (pillType === checkedType) {
+                            pill.style.display = 'inline-flex';
+                            const radio = pill.querySelector('input[name="edit_bay_radio"]');
+                            if (radio && radio.checked) bayStillVisible = true;
+                        } else {
+                            pill.style.display = 'none';
+                            const radio = pill.querySelector('input[name="edit_bay_radio"]');
+                            if (radio) radio.checked = false;
+                        }
+                    });
+
+                    if (!bayStillVisible) {
+                        const firstVisible = document.querySelector('#edit-bay-selector .bay-pill[style*="inline-flex"] input[name="edit_bay_radio"]');
+                        if (firstVisible) {
+                            firstVisible.checked = true;
+                            selectedBay = firstVisible.value;
+                        }
+                    }
+                    updateBayUI();
+                    updateTimeSlots();
+                }
+
+                function updateBayUI() {
+                    document.querySelectorAll('#edit-bay-selector .bay-pill').forEach(pill => pill.classList.remove('selected'));
+                    const checkedBay = document.querySelector('input[name="edit_bay_radio"]:checked');
+                    if (checkedBay) {
+                        const parent = checkedBay.closest('.bay-pill');
+                        if (parent) parent.classList.add('selected');
+                        selectedBay = checkedBay.value;
+                        hiddenBay.value = selectedBay;
+                    }
+                }
+
+                function updateDurationUI() {
+                    document.querySelectorAll('#edit-duration-selector .duration-pill').forEach(pill => pill.classList.remove('selected'));
+                    const checkedDur = document.querySelector('input[name="edit_duration_radio"]:checked');
+                    if (checkedDur) {
+                        const parent = checkedDur.closest('.duration-pill');
+                        if (parent) parent.classList.add('selected');
+                        selectedDuration = parseInt(checkedDur.value, 10) || 1;
+                        hiddenDuration.value = selectedDuration;
+                    }
+                }
+
+                function updateTimeRangeUI() {
+                    if (!selectedTime) {
+                        document.querySelectorAll('#edit-time-slots .time-slot-pill').forEach(btn => btn.classList.remove('selected'));
+                        return;
+                    }
+                    const startIndex = timeSlots.findIndex(slot => slot.label === selectedTime);
+                    if (startIndex === -1) return;
+
+                    document.querySelectorAll('#edit-time-slots .time-slot-pill').forEach((btn, index) => {
+                        const shouldSelect = index >= startIndex && index < startIndex + selectedDuration;
+                        btn.classList.toggle('selected', shouldSelect);
+                    });
+                }
+
+                function updateTimeSlots() {
+                    selectedDate = dateField.value;
+                    hiddenDate.value = selectedDate;
+
+                    const today = new Date();
+                    const selectedDateObj = new Date(selectedDate + 'T00:00:00');
+                    const todaysDateObj = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                    const isToday = selectedDateObj.getTime() === todaysDateObj.getTime();
+
+                    const booked = bookingRecords
+                        .filter(item => {
+                            const itemBay = (item.bay_key || item.bay || '').replace(/[\s-]+/g, '').toLowerCase();
+                            const currentBayNorm = (selectedBay || '').replace(/[\s-]+/g, '').toLowerCase();
+                            return itemBay === currentBayNorm && item.date === selectedDate;
+                        })
+                        .map(item => item.time);
+
+                    document.querySelectorAll('#edit-time-slots .time-slot-pill').forEach((btn, index) => {
+                        const slotTime = btn.getAttribute('data-time');
+                        const slotStart = btn.getAttribute('data-start');
+                        const slotStartObj = new Date(selectedDate + 'T' + slotStart);
+                        const isPast = isToday && slotStartObj < today;
+
+                        let isAvailable = true;
+                        if (isPast || index + selectedDuration > timeSlots.length) {
+                            isAvailable = false;
+                        } else {
+                            for (let i = 0; i < selectedDuration; i++) {
+                                const checkSlot = timeSlots[index + i];
+                                if (booked.includes(checkSlot.label)) {
+                                    isAvailable = false;
+                                    break;
+                                }
+                            }
+                        }
+
+                        btn.classList.remove('selected', 'disabled');
+                        if (!isAvailable) {
+                            btn.classList.add('disabled');
+                            btn.disabled = true;
+                        } else {
+                            btn.disabled = false;
+                        }
+                    });
+
+                    updateTimeRangeUI();
+                    updateSummary();
+                }
+
+                function updateSummary() {
+                    const bayRadio = document.querySelector('input[name="edit_bay_radio"]:checked');
+                    const pricePerHour = parseFloat(bayRadio?.getAttribute('data-price') || 50);
+                    const totalPrice = selectedDuration * pricePerHour;
+
+                    if (selectedTime) {
+                        const startIndex = timeSlots.findIndex(s => s.label === selectedTime);
+                        const endIndex = startIndex !== -1 && startIndex + selectedDuration - 1 < timeSlots.length
+                            ? timeSlots[startIndex + selectedDuration - 1].label
+                            : selectedTime;
+
+                        summaryEl.innerHTML = `<strong>${selectedBay}</strong><br/>${selectedDate} • ${selectedTime} - ${endIndex} (${selectedDuration}h)<br/><strong>Total: $${totalPrice.toFixed(2)}</strong>`;
+                        hiddenTime.value = selectedTime;
+                        saveBtn.disabled = false;
+                    } else {
+                        summaryEl.innerHTML = `<strong>${selectedBay}</strong><br/>${selectedDate} • Please select an available start time<br/><strong>$${totalPrice.toFixed(2)}</strong>`;
+                        saveBtn.disabled = true;
+                    }
+                }
+
+                document.querySelectorAll('input[name="edit_bay_type"]').forEach(radio => {
+                    radio.addEventListener('change', () => {
+                        updateBayTypeUI();
+                        filterBaysByType();
+                    });
+                });
+
+                document.querySelectorAll('input[name="edit_bay_radio"]').forEach(radio => {
+                    radio.addEventListener('change', () => {
+                        updateBayUI();
+                        updateTimeSlots();
+                    });
+                });
+
+                document.querySelectorAll('input[name="edit_duration_radio"]').forEach(radio => {
+                    radio.addEventListener('change', () => {
+                        updateDurationUI();
+                        updateTimeSlots();
+                    });
+                });
+
+                dateField.addEventListener('click', function() {
+                    if (typeof this.showPicker === 'function') {
+                        try {
+                            this.showPicker();
+                        } catch (err) {}
+                    }
+                });
+
+                dateField.addEventListener('change', () => {
+                    updateTimeSlots();
+                });
+
+                document.querySelectorAll('#edit-time-slots .time-slot-pill').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        if (btn.disabled) return;
+                        selectedTime = btn.getAttribute('data-time');
+                        updateTimeRangeUI();
+                        updateSummary();
+                    });
+                });
+
+                // Init UI
+                updateBayTypeUI();
+                filterBaysByType();
+                updateBayUI();
+                updateDurationUI();
+                updateTimeSlots();
+            })();
+            </script>
+        </section>
         <?php endif; ?>
 
         <section class="account-membership-panel bookings-section">
@@ -338,44 +591,6 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
         </section>
     </article>
 </main>
-<script src="https://js.stripe.com/v3/"></script>
-<script>
-(function() {
-    var form = document.querySelector('.account-membership-actions form');
-    var cardContainer = document.getElementById('membership-upgrade-card');
-    if (!form || !cardContainer || typeof Stripe === 'undefined') {
-        return;
-    }
-
-    var stripe = Stripe('pk_test_51TxKQ5GvsZrLG3yulrfaXb1jCaIIIcdEVZv28bF4ilRGFWW2gebxfWnuoJdXMGWzkEAgTU3yuPgniadk4UTIahHm00ZFuicsCP');
-    var card = stripe.elements().create('card');
-    card.mount(cardContainer);
-    var action = form.querySelector('[name="membership_action"]');
-    var token = document.getElementById('membership-upgrade-stripe-token');
-    var error = document.getElementById('membership-upgrade-card-error');
-
-    form.addEventListener('submit', function(event) {
-        if (!action || action.value !== 'upgrade' || token.value) {
-            return;
-        }
-
-        event.preventDefault();
-        error.textContent = '';
-        var button = form.querySelector('button[type="submit"]');
-        button.disabled = true;
-        stripe.createToken(card).then(function(result) {
-            if (result.error) {
-                error.textContent = result.error.message;
-                button.disabled = false;
-                return;
-            }
-
-            token.value = result.token.id;
-            form.submit();
-        });
-    });
-})();
-</script>
 <style>
 .account-header {
     margin-bottom: 30px;
@@ -468,6 +683,70 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
 
 .account-membership-actions h3 {
     margin: 0 0 14px;
+}
+
+.edit-booking-panel {
+    border-color: rgba(var(--primary-rgb), 0.35);
+}
+
+.edit-booking-panel h2 {
+    margin: 6px 0 16px;
+}
+
+.edit-booking-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px 28px;
+    margin-bottom: 22px;
+    padding: 14px 18px;
+    background: var(--surface-soft, #f7faf9);
+    border-radius: 12px;
+    border: 1px solid var(--border-soft);
+}
+
+.edit-booking-meta > div {
+    display: grid;
+    gap: 4px;
+}
+
+.edit-booking-panel .form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+.edit-booking-panel label {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-weight: 700;
+    color: var(--heading);
+    font-size: 0.95rem;
+}
+
+.edit-booking-panel input,
+.edit-booking-panel select {
+    padding: 12px 14px;
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    transition: all 0.2s ease;
+}
+
+.edit-booking-panel input:focus,
+.edit-booking-panel select:focus {
+    border-color: var(--primary);
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.15);
+}
+
+.edit-booking-actions {
+    margin-top: 24px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
 }
 
 .account-membership-action-fields {

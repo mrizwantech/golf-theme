@@ -10,9 +10,6 @@ $date = isset($_GET['date']) ? sanitize_text_field(wp_unslash($_GET['date'])) : 
 $time = isset($_GET['time']) ? sanitize_text_field(wp_unslash($_GET['time'])) : '';
 $time = preg_replace('/\s+/', ' ', trim($time)); // Normalize spaces
 $duration = isset($_GET['duration']) ? intval($_GET['duration']) : 1;
-$total_price = $duration * 50;
-$formatted_total_price = number_format($total_price, 2);
-
 if (!function_exists('ttn_booking_get_time_slots') || !function_exists('ttn_booking_get_bays') || !function_exists('ttn_get_bay_display_name')) {
     echo '<main class="container"><article class="entry-content"><p>Booking plugin is not active. Please <a href="' . esc_url(home_url('/book-a-bay/')) . '">go back</a> and try again.</p></article></main>';
     get_footer();
@@ -20,8 +17,16 @@ if (!function_exists('ttn_booking_get_time_slots') || !function_exists('ttn_book
 }
 
 $time_slots = ttn_booking_get_time_slots();
-$bay_options = array_values(ttn_booking_get_bays());
+$bay_options = ttn_booking_get_bays();
+$bay_prices = array();
+foreach ($bay_options as $bay_k => $bay_l) {
+    $p = ttn_booking_get_hourly_price($bay_k);
+    $bay_prices[$bay_k] = $p;
+    $bay_prices[$bay_l] = $p;
+}
 $display_bay = ttn_get_bay_display_name($bay);
+$total_price = $duration * ttn_booking_get_hourly_price($bay);
+$formatted_total_price = number_format($total_price, 2);
 $time_slot_labels = array_column($time_slots, 'label');
 
 if (!$bay || !$date || !$time) {
@@ -56,8 +61,8 @@ if (!$bay || !$date || !$time) {
                 <label>
                     Bay
                     <select id="edit-bay">
-                        <?php foreach ($bay_options as $bay_option) : ?>
-                            <option value="<?php echo esc_attr($bay_option); ?>" <?php selected($display_bay, $bay_option); ?>><?php echo esc_html($bay_option); ?></option>
+                        <?php foreach ($bay_options as $bay_key => $bay_option) : ?>
+                            <option value="<?php echo esc_attr($bay_key); ?>" <?php selected($bay, $bay_key); ?>><?php echo esc_html($bay_option); ?></option>
                         <?php endforeach; ?>
                     </select>
                 </label>
@@ -108,6 +113,20 @@ if (!$bay || !$date || !$time) {
                     Phone Number
                     <input type="tel" name="phone" placeholder="(555) 123-4567" autocomplete="tel" required>
                 </label>
+                <?php if (!is_user_logged_in()) : ?>
+                <label class="full-width">
+                    <strong>Create an account (optional)</strong>
+                </label>
+                <p class="full-width checkout-account-note">Set a password to save this booking to an account and manage future reservations. Leave blank to book as a guest.</p>
+                <label>
+                    Password
+                    <input type="password" name="create_account_password" placeholder="At least 6 characters" autocomplete="new-password" minlength="6">
+                </label>
+                <label>
+                    Confirm Password
+                    <input type="password" name="create_account_password_confirm" placeholder="Repeat password" autocomplete="new-password" minlength="6">
+                </label>
+                <?php endif; ?>
                 <label class="full-width">
                     <strong>Card Details</strong>
                 </label>
@@ -127,10 +146,11 @@ if (!$bay || !$date || !$time) {
 <script src="https://js.stripe.com/v3/"></script>
 <script>
 (function() {
-    const PRICE_PER_HOUR = 50;
+    const bayPrices = <?php echo wp_json_encode($bay_prices); ?>;
+    const bayLabels = <?php echo wp_json_encode($bay_options); ?>;
     const timeSlots = <?php echo wp_json_encode($time_slot_labels); ?>;
     let bookingState = {
-        bay: <?php echo wp_json_encode($display_bay); ?>,
+        bay: <?php echo wp_json_encode($bay); ?>,
         date: <?php echo wp_json_encode($date); ?>,
         time: <?php echo wp_json_encode($time); ?>,
         duration: <?php echo (int) $duration; ?>
@@ -158,7 +178,8 @@ if (!$bay || !$date || !$time) {
     const submitBtn = document.getElementById('submit-btn');
 
     function getFormattedTotal() {
-        return (bookingState.duration * PRICE_PER_HOUR).toFixed(2);
+        const hourly = parseFloat(bayPrices[bookingState.bay]) || 50;
+        return (bookingState.duration * hourly).toFixed(2);
     }
 
     function getEndTime(startLabel, durationHours) {
@@ -185,7 +206,7 @@ if (!$bay || !$date || !$time) {
     function renderSummary() {
         const endTime = getEndTime(bookingState.time, bookingState.duration);
 
-        summaryBay.textContent = bookingState.bay;
+        summaryBay.textContent = bayLabels[bookingState.bay] || bookingState.bay;
         summaryDateTime.textContent = bookingState.date + ' at ' + bookingState.time + (endTime ? ' - ' + endTime : '');
         summaryDuration.textContent = bookingState.duration + (bookingState.duration === 1 ? ' Hour' : ' Hours');
         summaryTotal.textContent = 'Total: $' + getFormattedTotal();
@@ -324,6 +345,11 @@ if (!$bay || !$date || !$time) {
     border-radius: 12px;
     background: #121212;
     color: #ffffff;
+}
+.checkout-account-note {
+    margin: -6px 0 4px;
+    font-size: 0.85rem;
+    color: var(--muted);
 }
 </style>
 
