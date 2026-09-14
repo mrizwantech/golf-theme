@@ -118,6 +118,29 @@ function ttn_booking_get_logo_url() {
 }
 
 function ttn_booking_render_email($title, $intro, $rows, $account_url, $use_customer_template = true) {
+    if (function_exists('golf_simulator_theme_render_email_template')) {
+        $details_table = '<table style="width:100%;border-collapse:collapse;margin:0 0 22px;font-size:15px;color:#4b5563;">';
+        foreach ($rows as $label => $value) {
+            $details_table .= '<tr><td style="padding:6px 0;"><strong>' . esc_html($label) . '</strong></td><td style="padding:6px 0;text-align:right;">' . esc_html($value) . '</td></tr>';
+        }
+        $details_table .= '</table>';
+
+        $body_html = '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">' . esc_html($intro) . '</p>' . $details_table;
+        
+        $message = golf_simulator_theme_render_email_template(
+            'Reservation Confirmation',
+            $title,
+            $body_html,
+            'View My Bookings',
+            $account_url ?: home_url('/my-account/')
+        );
+
+        return array(
+            'subject' => $title . ' - Tee Time Nexus',
+            'message' => $message,
+        );
+    }
+
     $logo_url = ttn_booking_get_logo_url();
     $details = array();
 
@@ -125,33 +148,38 @@ function ttn_booking_render_email($title, $intro, $rows, $account_url, $use_cust
         $details[] = $label . ': ' . $value;
     }
 
-    if ($use_customer_template) {
-        $default_subject = 'Your Tee Time Nexus booking details';
-        $default_body = "Hi,\n\n{{intro}}\n\n{{booking_details}}\n\nView your bookings: {{account_url}}\n\nQuestions? Reply to this email and our team will help.\n\nTee Time Nexus";
-        $subject_template = get_option('ttn_booking_email_subject', $default_subject);
-        $body_template = get_option('ttn_booking_email_body', $default_body);
-        $replacements = array(
-            '{{title}}' => $title,
-            '{{intro}}' => $intro,
-            '{{booking_details}}' => implode("\n", $details),
-            '{{account_url}}' => $account_url,
-        );
-        $subject = strtr($subject_template, $replacements);
-        $body = strtr($body_template, $replacements);
-    } else {
-        $subject = $title;
-        $body = $intro . "\n\n" . implode("\n", $details);
+    $business_address = '2785 Charlotte Hwy Suites 11&12, Mooresville, NC 28117';
+    $map_url = 'https://www.google.com/maps/search/?api=1&query=' . rawurlencode($business_address);
+    $business_phone = '+19805033288';
+    $business_email = 'sales@teetimenexus.com';
+
+    $cta_html = $account_url
+        ? '<p style="margin:20px 0;text-align:center;"><a href="' . esc_url($account_url) . '" style="display:inline-block;padding:13px 22px;background:#a1e04c;color:#101010;text-decoration:none;border-radius:8px;font-weight:800;">View My Bookings</a></p>'
+        : '';
+
+    $body_html = '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">' . esc_html($intro) . '</p>'
+        . '<table style="width:100%;border-collapse:collapse;margin:0 0 22px;font-size:15px;color:#4b5563;">';
+    foreach ($rows as $label => $value) {
+        $body_html .= '<tr><td style="padding:6px 0;"><strong>' . esc_html($label) . '</strong></td><td style="padding:6px 0;text-align:right;">' . esc_html($value) . '</td></tr>';
     }
-    $body_html = nl2br(esc_html($body));
+    $body_html .= '</table>' . $cta_html
+        . '<div style="margin:28px 0 0;padding:18px;background:#f3f4f6;border-radius:10px;color:#4b5563;font-size:14px;line-height:1.7;">'
+        . '<strong style="color:#111827;">Tee Time Nexus</strong><br>'
+        . '<a href="' . esc_url($map_url) . '" target="_blank" rel="noopener" style="color:#1769aa;text-decoration:underline;">2785 Charlotte Hwy, Suites 11 &amp; 12<br>Mooresville, NC 28117</a><br>'
+        . '<a href="tel:' . esc_attr($business_phone) . '" style="color:#1769aa;text-decoration:underline;">+1 (980) 503-3288</a><br>'
+        . '<a href="mailto:' . esc_attr($business_email) . '" style="color:#1769aa;text-decoration:underline;">' . esc_html($business_email) . '</a>'
+        . '</div>'
+        . '<p style="margin:28px 0 0;color:#4b5563;font-size:15px;line-height:1.6;"><strong>See you on the tee!</strong><br><strong>Tee Time Nexus</strong></p>';
+
     $logo_html = $logo_url ? '<img src="' . esc_url($logo_url) . '" alt="Tee Time Nexus" style="display:block;max-width:180px;max-height:56px;margin:0 auto 16px;">' : '<div style="font-size:24px;font-weight:800;letter-spacing:.02em;margin-bottom:16px;">Tee Time Nexus</div>';
 
     return array(
-        'subject' => $subject,
+        'subject' => $title . ' - Tee Time Nexus',
         'message' => '<!doctype html><html><body style="margin:0;background:#f3f4f6;font-family:Arial,sans-serif;color:#111827;">'
             . '<div style="padding:32px 12px;"><div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e5e7eb;">'
-            . '<div style="background:#07110b;padding:28px 24px;text-align:center;color:#ffffff;">' . $logo_html . '<div style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#a1e04c;font-weight:700;">Tee Time Nexus</div></div>'
+            . '<div style="background:#07110b;padding:28px 24px;text-align:center;color:#ffffff;">' . $logo_html . '<div style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:#a1e04c;font-weight:700;">Reservation Confirmation</div></div>'
             . '<div style="padding:28px 28px 32px;"><h1 style="margin:0 0 12px;font-size:24px;line-height:1.2;color:#111827;">' . esc_html($title) . '</h1>'
-            . '<div style="font-size:15px;line-height:1.6;color:#4b5563;">' . $body_html . '</div>'
+            . $body_html
             . '</div></div></div></body></html>',
     );
 }
@@ -788,6 +816,28 @@ function ttn_booking_shortcode() {
     $bays = ttn_booking_get_bays();
     $default_date = current_time('Y-m-d');
     $confirmed = isset($_GET['booking']) && $_GET['booking'] === 'confirmed';
+    $confirmed_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
+    $confirmed_booking = null;
+
+    if ($confirmed && $confirmed_id) {
+        $confirmed_post = get_post($confirmed_id);
+        if ($confirmed_post && $confirmed_post->post_type === 'ttn_booking') {
+            $confirmed_booking = array(
+                'id' => $confirmed_id,
+                'reference' => 'TTN-' . str_pad((string) $confirmed_id, 6, '0', STR_PAD_LEFT),
+                'name' => get_post_meta($confirmed_id, 'ttn_booking_name', true),
+                'email' => get_post_meta($confirmed_id, 'ttn_booking_email', true),
+                'phone' => get_post_meta($confirmed_id, 'ttn_booking_phone', true),
+                'bay' => ttn_get_bay_display_name(get_post_meta($confirmed_id, 'ttn_booking_bay', true)),
+                'date' => get_post_meta($confirmed_id, 'ttn_booking_date', true),
+                'time' => get_post_meta($confirmed_id, 'ttn_booking_time', true),
+                'duration' => intval(get_post_meta($confirmed_id, 'ttn_booking_duration', true) ?: 1),
+                'players' => intval(get_post_meta($confirmed_id, 'ttn_booking_players', true) ?: 1),
+                'total_price' => get_post_meta($confirmed_id, 'ttn_booking_total_price', true),
+                'payment_status' => get_post_meta($confirmed_id, 'ttn_booking_payment_status', true),
+            );
+        }
+    }
 
     // Get booking records using the centralized function
     $booking_records = ttn_booking_get_booking_records();
@@ -801,16 +851,52 @@ function ttn_booking_shortcode() {
                 <div class="success-content">
                     <h2>Booking Confirmed!</h2>
                     <p>Your reservation has been successfully booked and paid.</p>
+
+                    <?php if ($confirmed_booking) : ?>
+                        <div class="success-booking-summary" style="margin: 18px 0; padding: 18px 20px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-soft); border-radius: 14px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--border-soft); padding-bottom: 8px;">
+                                <strong style="font-size: 1.15rem; color: var(--primary);">Booking Ref: <?php echo esc_html($confirmed_booking['reference']); ?></strong>
+                                <span style="font-size: 0.85rem; color: var(--muted);"><?php echo esc_html($confirmed_booking['bay']); ?></span>
+                            </div>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; font-size: 0.95rem;">
+                                <div>
+                                    <span style="display: block; font-size: 0.75rem; text-transform: uppercase; color: var(--muted); font-weight: 700;">Date</span>
+                                    <strong><?php echo esc_html($confirmed_booking['date']); ?></strong>
+                                </div>
+                                <div>
+                                    <span style="display: block; font-size: 0.75rem; text-transform: uppercase; color: var(--muted); font-weight: 700;">Time</span>
+                                    <strong><?php echo esc_html($confirmed_booking['time']); ?></strong>
+                                </div>
+                                <div>
+                                    <span style="display: block; font-size: 0.75rem; text-transform: uppercase; color: var(--muted); font-weight: 700;">Duration</span>
+                                    <strong><?php echo esc_html($confirmed_booking['duration']); ?> <?php echo $confirmed_booking['duration'] === 1 ? 'Hour' : 'Hours'; ?></strong>
+                                </div>
+                                <div>
+                                    <span style="display: block; font-size: 0.75rem; text-transform: uppercase; color: var(--muted); font-weight: 700;">Players</span>
+                                    <strong><?php echo esc_html($confirmed_booking['players']); ?></strong>
+                                </div>
+                            </div>
+                        </div>
+
+                        <?php if (!is_user_logged_in()) : ?>
+                            <div class="guest-booking-notice" style="margin: 16px 0; padding: 14px 18px; background: rgba(161, 224, 76, 0.08); border: 1px solid rgba(161, 224, 76, 0.3); border-radius: 12px; font-size: 0.92rem; line-height: 1.6;">
+                                <strong style="color: var(--primary);">Guest Reservation Note:</strong>
+                                <p style="margin: 6px 0 0; color: #ffffff;">To modify or reschedule this reservation online, <a href="<?php echo esc_url(golf_simulator_theme_get_login_url(home_url('/my-account/'), 'register')); ?>" style="color: var(--primary); text-decoration: underline; font-weight: 700;">create an account using <?php echo esc_html($confirmed_booking['email']); ?></a>. Otherwise, changes can be made by calling us at <a href="tel:+19805033288" style="color: var(--primary); text-decoration: underline; font-weight: 700;">+1 (980) 503-3288</a> with your booking reference <strong><?php echo esc_html($confirmed_booking['reference']); ?></strong>.</p>
+                            </div>
+                        <?php endif; ?>
+                    <?php endif; ?>
+
                     <div class="success-details">
                         <p>✓ Confirmation email sent to your inbox</p>
                         <p>✓ SMS notification if number provided</p>
                     </div>
                     <div class="success-actions">
-                        <a href="<?php echo esc_url(home_url('/my-account/')); ?>" class="btn btn-small-white">View My Bookings</a>
+                        <?php if (is_user_logged_in()) : ?>
+                            <a href="<?php echo esc_url(home_url('/my-account/')); ?>" class="btn btn-small-white">View My Bookings</a>
+                        <?php else : ?>
+                            <a href="<?php echo esc_url(golf_simulator_theme_get_login_url(home_url('/my-account/'), 'register')); ?>" class="btn btn-small-white">Create Account &amp; Manage</a>
+                        <?php endif; ?>
                         <a href="<?php echo esc_url(home_url('/book-a-bay/')); ?>" class="btn btn-small-white">Book Another Bay</a>
-                    </div>
-                    <div class="success-timer">
-                        <p>Redirecting to booking page in <span id="countdown">60</span> seconds...</p>
                     </div>
                 </div>
                 <button class="success-close" onclick="document.getElementById('successAlert').style.display='none';">×</button>
@@ -823,7 +909,7 @@ function ttn_booking_shortcode() {
             <h3>Select Simulator Type</h3>
             <div class="bay-type-selector" id="ttn-bay-type-selector">
                 <label class="bay-type-pill">
-                    <input type="radio" name="bay_type" value="dual" />
+                    <input type="radio" name="bay_type" value="dual" checked />
                     <span>Dual (Left & Right Handed)</span>
                 </label>
                 <label class="bay-type-pill">
@@ -836,12 +922,14 @@ function ttn_booking_shortcode() {
         <div class="booking-section" id="ttn-bay-section">
             <h3>Select Bay</h3>
             <div class="bay-selector" id="ttn-bay-selector">
+                <?php $bay_index = 0; ?>
                 <?php foreach ($bays as $bay_key => $bay_label) : ?>
                     <?php $bay_config = ttn_booking_get_bay_config($bay_key); ?>
                     <label class="bay-pill" data-bay-type="<?php echo esc_attr($bay_config['type'] ?? 'right-handed'); ?>">
-                        <input type="radio" name="bay" value="<?php echo esc_attr($bay_key); ?>" data-bay-key="<?php echo esc_attr($bay_key); ?>" data-bay-type="<?php echo esc_attr($bay_config['type'] ?? 'right-handed'); ?>" data-price="<?php echo esc_attr(ttn_booking_get_hourly_price($bay_key)); ?>" />
+                        <input type="radio" name="bay" value="<?php echo esc_attr($bay_key); ?>" data-bay-key="<?php echo esc_attr($bay_key); ?>" data-bay-type="<?php echo esc_attr($bay_config['type'] ?? 'right-handed'); ?>" data-price="<?php echo esc_attr(ttn_booking_get_hourly_price($bay_key)); ?>" <?php checked($bay_index, 0); ?> />
                         <span><?php echo esc_html($bay_label); ?></span>
                     </label>
+                    <?php $bay_index++; ?>
                 <?php endforeach; ?>
             </div>
         </div>
@@ -1073,44 +1161,16 @@ function ttn_booking_shortcode() {
             });
 
             if (!currentlySelectedBayStillVisible) {
-                selectedBay = null;
-                selectedTime = null;
-                updateBaySelectionUI();
-                timeSlots_el.style.display = 'none';
-                document.querySelectorAll('.time-slot-pill').forEach(btn => btn.classList.remove('selected'));
-                updateSummary();
+            const firstVisibleRadio = document.querySelector('.bay-pill[data-bay-type="' + checkedType + '"] input[name="bay"]');
+            if (firstVisibleRadio) {
+                firstVisibleRadio.checked = true;
             }
         }
 
-        function updateDurationSelectionUI() {
-            document.querySelectorAll('.duration-pill').forEach(pill => {
-                pill.classList.remove('selected');
-            });
-
-            const checkedDuration = document.querySelector('input[name="duration"]:checked');
-            if (checkedDuration) {
-                const selectedPill = checkedDuration.closest('.duration-pill');
-                if (selectedPill) {
-                    selectedPill.classList.add('selected');
-                }
-            }
-        }
-
-        function updateBaySelectionUI() {
-            document.querySelectorAll('.bay-pill').forEach(pill => {
-                pill.classList.remove('selected');
-            });
-
-            const checkedBay = document.querySelector('input[name="bay"]:checked');
-            if (checkedBay) {
-                const selectedPill = checkedBay.closest('.bay-pill');
-                if (selectedPill) {
-                    selectedPill.classList.add('selected');
-                }
-            }
-        }
-
-        function updatePlayersSelectionUI() {
+        updateBaySelectionUI();
+        selectedTime = null;
+        document.querySelectorAll('.time-slot-pill').forEach(btn => btn.classList.remove('selected'));
+        updateTimeSlots();
             document.querySelectorAll('.player-pill').forEach(pill => {
                 pill.classList.remove('selected');
             });

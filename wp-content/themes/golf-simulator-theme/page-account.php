@@ -809,71 +809,90 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
 }
 
 .bookings-table thead {
-    background: #0f5132;
-    color: #fff;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--heading, #ffffff);
 }
 
 .bookings-table th,
 .bookings-table td {
-    padding: 12px;
+    padding: 14px 12px;
     text-align: left;
-    border-bottom: 1px solid #ddd;
+    border-bottom: 1px solid var(--border-soft, rgba(255, 255, 255, 0.08));
+    color: var(--text, #f5f5f5);
 }
 
 .bookings-table tbody tr:hover {
-    background: #f8f9fa;
+    background: rgba(255, 255, 255, 0.03);
 }
 
 .bookings-table .booking-past {
-    opacity: 0.6;
+    opacity: 0.5;
 }
 
 .badge-past {
     display: inline-block;
-    background: #ddd;
-    color: #666;
-    padding: 4px 8px;
-    border-radius: 3px;
-    font-size: 0.85rem;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--muted, #b8b8b8);
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    font-weight: 600;
 }
 
 .btn-small {
-    display: inline-block;
-    padding: 6px 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 76px;
+    box-sizing: border-box;
+    padding: 7px 0;
     margin-right: 6px;
-    background: #0f5132;
-    color: #fff;
-    border-radius: 3px;
+    background: #000000 !important;
+    color: #ffffff !important;
+    border: 2px solid #ffffff !important;
+    border-radius: 999px;
     text-decoration: none;
-    font-size: 0.9rem;
-    border: none;
+    font-size: 0.85rem;
+    font-weight: 700;
     cursor: pointer;
+    text-align: center;
+    transition: all 0.2s ease;
 }
 
 .btn-small:hover {
-    background: #0a3a24;
+    background: #000000 !important;
+    border-color: var(--primary) !important;
+    color: #ffffff !important;
 }
 
 .btn-small.btn-danger {
-    background: #d32f2f;
+    background: #000000 !important;
+    border: 2px solid #ff5c5c !important;
+    color: #ff5c5c !important;
 }
 
 .btn-small.btn-danger:hover {
-    background: #b71c1c;
+    background: #000000 !important;
+    border-color: #ff3333 !important;
+    color: #ff3333 !important;
 }
 
 .btn-secondary {
     display: inline-block;
     padding: 10px 20px;
-    background: #6c757d;
-    color: #fff;
-    border-radius: 5px;
+    background: transparent;
+    border: 1px solid var(--btn-secondary-border, rgba(255, 255, 255, 0.7));
+    color: var(--heading, #ffffff);
+    border-radius: 8px;
     text-decoration: none;
     margin-left: 10px;
+    transition: all 0.2s ease;
 }
 
 .btn-secondary:hover {
-    background: #5a6268;
+    background: transparent;
+    border-color: var(--primary);
+    color: var(--primary);
 }
 
 .form-table {
@@ -902,36 +921,47 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
     font-size: 1rem;
 }
 
-.btn {
-    display: inline-block;
-    padding: 10px 20px;
-    background: #0f5132;
-    color: #fff;
-    border-radius: 5px;
-    text-decoration: none;
-    border: none;
-    cursor: pointer;
-    font-weight: 600;
-}
-
-.btn:hover {
-    background: #0a3a24;
-}
-
-.btn-primary {
-    background: #0f5132;
-}
-
-.btn-primary:hover {
-    background: #0a3a24;
-}
-
 .notice {
-    padding: 12px;
-    margin: 15px 0;
-    border-left: 4px solid #0f5132;
-    background: #f0f8f5;
-    border-radius: 3px;
+    padding: 14px 18px;
+    margin: 18px 0 24px;
+    border-radius: 12px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    line-height: 1.5;
+}
+
+.notice p {
+    margin: 0;
+}
+
+.notice-success {
+    background: rgba(161, 224, 76, 0.12) !important;
+    border: 1px solid rgba(161, 224, 76, 0.45) !important;
+    color: #ffffff !important;
+}
+
+.notice-success p {
+    color: #ffffff !important;
+}
+
+.notice-error {
+    background: rgba(239, 68, 68, 0.12) !important;
+    border: 1px solid rgba(239, 68, 68, 0.4) !important;
+    color: #fca5a5 !important;
+}
+
+.notice-error p {
+    color: #fca5a5 !important;
+}
+
+.notice-warning {
+    background: rgba(245, 158, 11, 0.12) !important;
+    border: 1px solid rgba(245, 158, 11, 0.4) !important;
+    color: #fcd34d !important;
+}
+
+.notice-warning p {
+    color: #fcd34d !important;
 }
 </style>
 
