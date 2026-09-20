@@ -831,9 +831,11 @@ function ttn_booking_add_to_cart_and_redirect($bay_name, $booking_data = array()
 }
 
 function ttn_booking_add_extension_to_cart_and_redirect($booking_id, $extension_data) {
-    if (!class_exists('WC_Cart') || !function_exists('wc_get_checkout_url') || !function_exists('WC')) {
+    if (!class_exists('WC_Cart') || !function_exists('wc_get_checkout_url') || !function_exists('WC') || !function_exists('wc_load_cart')) {
         return false;
     }
+
+    wc_load_cart();
 
     $wc = WC();
     if (!$wc || !isset($wc->cart)) {
@@ -844,6 +846,12 @@ function ttn_booking_add_extension_to_cart_and_redirect($booking_id, $extension_
     $product_id = ttn_booking_get_bay_product_id($bay_name);
     if (!$product_id) {
         return false;
+    }
+
+    $product = wc_get_product($product_id);
+    if ($product && !$product->is_virtual()) {
+        $product->set_virtual(true);
+        $product->save();
     }
 
     $wc->cart->empty_cart();
@@ -1967,6 +1975,15 @@ function ttn_add_admin_menu() {
 
     add_submenu_page(
         'ttn-bookings-dashboard',
+        'Bay Settings',
+        'Bay Settings',
+        'manage_woocommerce',
+        'ttn-booking-bays',
+        'ttn_booking_bays_admin_page'
+    );
+
+    add_submenu_page(
+        'ttn-bookings-dashboard',
         'Email Template',
         'Email Template',
         'manage_woocommerce',
@@ -2516,6 +2533,11 @@ function ttn_crud_update_user_booking($booking_id, $user_email, $booking_data) {
                 'message' => sprintf('Please complete checkout for the additional $%s balance.', number_format($difference, 2)),
             );
         }
+
+        return array(
+            'success' => false,
+            'message' => 'Unable to start checkout for the additional balance. Your booking was not changed.',
+        );
     }
 
     // Case 2 & 3: Decrease or Same Duration
