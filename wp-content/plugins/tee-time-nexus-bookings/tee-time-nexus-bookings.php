@@ -365,6 +365,7 @@ function ttn_booking_sync_bay_products($bays) {
         $product->set_price((string) ttn_booking_get_hourly_price($bay_key));
         $product->set_status('publish');
         $product->set_catalog_visibility('hidden');
+        $product->set_virtual(true);
         $product->save();
     }
 }
@@ -375,6 +376,35 @@ function ttn_booking_sync_bay_products($bays) {
 function ttn_get_bay_display_name($bay_name) {
     $bay = ttn_booking_get_bay_config($bay_name);
     return $bay ? $bay['name'] : (string) $bay_name;
+}
+
+function ttn_booking_get_order_payment_details($order_id) {
+    if (!$order_id || !function_exists('wc_get_order')) {
+        return array();
+    }
+
+    $order = wc_get_order($order_id);
+    if (!$order) {
+        return array();
+    }
+
+    $last_four = '';
+    foreach ($order->get_meta_data() as $meta) {
+        $meta_key = strtolower((string) $meta->key);
+        $meta_value = is_scalar($meta->value) ? (string) $meta->value : '';
+        if (preg_match('/(last4|last_4|last_four|card_number)/', $meta_key) && preg_match('/(\d{4})$/', $meta_value, $matches)) {
+            $last_four = $matches[1];
+            break;
+        }
+    }
+
+    return array(
+        'order_id' => $order->get_id(),
+        'order_status' => wc_get_order_status_name($order->get_status()),
+        'payment_method' => $order->get_payment_method_title(),
+        'paid_at' => $order->get_date_paid() ? $order->get_date_paid()->date_i18n(get_option('date_format')) : '',
+        'card_last_four' => $last_four,
+    );
 }
 
 /**
@@ -407,6 +437,7 @@ function ttn_get_user_bookings($email) {
                 'status' => get_post_meta($post_id, 'ttn_booking_status', true) ?: 'confirmed',
                 'updated_at' => get_post_meta($post_id, 'ttn_booking_updated_at', true) ?: get_the_modified_date('Y-m-d H:i:s', $post_id),
                 'payment_status' => get_post_meta($post_id, 'ttn_booking_payment_status', true),
+                'payment' => ttn_booking_get_order_payment_details(get_post_meta($post_id, 'ttn_booking_order_id', true)),
                 'booking_reference' => 'TTN-' . str_pad((string) $post_id, 6, '0', STR_PAD_LEFT),
             );
         }
@@ -740,17 +771,31 @@ function ttn_booking_get_bay_product_id($bay_name) {
         return $products[0]->get_id();
     }
 
+    ttn_booking_sync_bay_products(ttn_booking_get_bay_configs());
+    $products = wc_get_products(array('sku' => $sku, 'limit' => 1, 'status' => 'any'));
+    if (!empty($products) && isset($products[0])) {
+        return $products[0]->get_id();
+    }
+
     return 0;
 }
 
 function ttn_booking_add_to_cart_and_redirect($bay_name, $booking_data = array()) {
-    if (!class_exists('WC_Cart') || !function_exists('wc_get_checkout_url') || !function_exists('WC')) {
+    if (!class_exists('WC_Cart') || !function_exists('wc_get_checkout_url') || !function_exists('WC') || !function_exists('wc_load_cart')) {
         return false;
     }
+
+    wc_load_cart();
 
     $product_id = ttn_booking_get_bay_product_id($bay_name);
     if (!$product_id) {
         return false;
+    }
+
+    $product = wc_get_product($product_id);
+    if ($product && !$product->is_virtual()) {
+        $product->set_virtual(true);
+        $product->save();
     }
 
     try {
@@ -772,8 +817,8 @@ function ttn_booking_add_to_cart_and_redirect($bay_name, $booking_data = array()
                 'bay' => isset($booking_data['bay']) ? $booking_data['bay'] : $bay_name,
                 'date' => isset($booking_data['date']) ? $booking_data['date'] : '',
                 'time' => isset($booking_data['time']) ? $booking_data['time'] : '',
-                'name' => isset($booking_data['name']) ? $booking_data['name'] : '',
-                'email' => isset($booking_data['email']) ? $booking_data['email'] : '',
+                'duration' => isset($booking_data['duration']) ? max(1, min(8, intval($booking_data['duration']))) : 1,
+                'players' => isset($booking_data['players']) ? max(1, min(4, intval($booking_data['players']))) : 1,
             );
         }
 
@@ -829,7 +874,8 @@ function ttn_booking_set_cart_item_price($cart) {
         if (!empty($cart_item['ttn_booking_extension']['price_difference']) && isset($cart_item['data'])) {
             $cart_item['data']->set_price((float) $cart_item['ttn_booking_extension']['price_difference']);
         } elseif (!empty($cart_item['ttn_booking']['bay']) && isset($cart_item['data'])) {
-            $cart_item['data']->set_price(ttn_booking_get_hourly_price($cart_item['ttn_booking']['bay']));
+            $duration = max(1, min(8, intval($cart_item['ttn_booking']['duration'] ?? 1)));
+            $cart_item['data']->set_price(ttn_booking_get_hourly_price($cart_item['ttn_booking']['bay']) * $duration);
         }
     }
 }
@@ -872,11 +918,129 @@ function ttn_booking_store_order_line_data($item, $cart_item_key, $values, $orde
         $item->add_meta_data('ttn_booking_bay', $booking['bay']);
         $item->add_meta_data('ttn_booking_date', $booking['date']);
         $item->add_meta_data('ttn_booking_time', $booking['time']);
-        $item->add_meta_data('ttn_booking_name', $booking['name']);
-        $item->add_meta_data('ttn_booking_email', $booking['email']);
+        $item->add_meta_data('ttn_booking_duration', $booking['duration']);
+        $item->add_meta_data('ttn_booking_players', $booking['players']);
     }
 }
 add_action('woocommerce_checkout_create_order_line_item', 'ttn_booking_store_order_line_data', 10, 4);
+
+function ttn_booking_start_woocommerce_checkout() {
+    $nonce = sanitize_text_field(wp_unslash($_REQUEST['ttn_booking_checkout_nonce'] ?? ''));
+    if (!wp_verify_nonce($nonce, 'ttn_booking_start_checkout')) {
+        wp_die(__('Security check failed. Please try again.', 'tee-time-nexus-bookings'));
+    }
+
+    $bay = sanitize_text_field(wp_unslash($_REQUEST['bay'] ?? ''));
+    $date = sanitize_text_field(wp_unslash($_REQUEST['date'] ?? ''));
+    $time = sanitize_text_field(wp_unslash($_REQUEST['time'] ?? ''));
+    $duration = max(1, min(8, intval($_REQUEST['duration'] ?? 0)));
+    $players = max(1, min(4, intval($_REQUEST['players'] ?? 0)));
+
+    if (!ttn_booking_get_bay_config($bay) || !$date || !$time) {
+        wp_safe_redirect(add_query_arg('booking_error', 'invalid-selection', home_url('/book-a-bay/')));
+        exit;
+    }
+
+    $checkout_url = ttn_booking_add_to_cart_and_redirect($bay, array(
+        'bay' => $bay,
+        'date' => $date,
+        'time' => $time,
+        'duration' => $duration,
+        'players' => $players,
+    ));
+
+    if (!$checkout_url) {
+        wp_die(__('WooCommerce checkout is unavailable. Please contact us for assistance.', 'tee-time-nexus-bookings'));
+    }
+
+    wp_safe_redirect($checkout_url);
+    exit;
+}
+add_action('admin_post_ttn_booking_start_woocommerce_checkout', 'ttn_booking_start_woocommerce_checkout');
+add_action('admin_post_nopriv_ttn_booking_start_woocommerce_checkout', 'ttn_booking_start_woocommerce_checkout');
+
+function ttn_booking_process_wc_order($order_id) {
+    if (!function_exists('wc_get_order')) {
+        return;
+    }
+
+    $order = wc_get_order($order_id);
+    if (!$order || $order->get_meta('_ttn_booking_processed') === 'yes') {
+        return;
+    }
+
+    $customer_name = trim($order->get_billing_first_name() . ' ' . $order->get_billing_last_name());
+    $customer_name = $customer_name ?: $order->get_formatted_billing_full_name();
+    $customer_email = $order->get_billing_email();
+    $customer_phone = $order->get_billing_phone();
+    $user_id = $order->get_customer_id();
+    $created_booking = false;
+
+    foreach ($order->get_items() as $item) {
+        $bay = $item->get_meta('ttn_booking_bay');
+        $date = $item->get_meta('ttn_booking_date');
+        $time = $item->get_meta('ttn_booking_time');
+        $duration = max(1, min(8, intval($item->get_meta('ttn_booking_duration'))));
+        $players = max(1, min(4, intval($item->get_meta('ttn_booking_players'))));
+
+        if (!$bay || !$date || !$time || !ttn_booking_get_bay_config($bay)) {
+            continue;
+        }
+
+        $time_slots = ttn_booking_get_time_slots();
+        $start_index = array_search($time, array_column($time_slots, 'label'), true);
+        if ($start_index === false || $start_index + $duration > count($time_slots)) {
+            $order->add_order_note(__('Booking was not created because its saved time selection is invalid.', 'tee-time-nexus-bookings'));
+            continue;
+        }
+
+        $total_price = $duration * ttn_booking_get_hourly_price($bay);
+        $parent_booking_id = 0;
+        for ($index = 0; $index < $duration; $index++) {
+            $slot = $time_slots[$start_index + $index];
+            $booking_id = wp_insert_post(array(
+                'post_type' => 'ttn_booking',
+                'post_status' => 'publish',
+                'post_title' => $customer_name . ' - ' . $bay . ' - ' . $date,
+            ), true);
+
+            if (is_wp_error($booking_id)) {
+                continue;
+            }
+
+            ttn_save_booking_metadata($booking_id, array(
+                'name' => $customer_name,
+                'phone' => $customer_phone,
+                'email' => $customer_email,
+                'bay' => $bay,
+                'date' => $date,
+                'time' => $slot['label'],
+                'duration' => $duration,
+                'players' => $players,
+                'total_price' => $total_price,
+                'payment_status' => 'Paid',
+                'parent_id' => $index > 0 ? $parent_booking_id : null,
+                'user_id' => $user_id,
+                'status' => 'confirmed',
+                'updated_at' => current_time('mysql'),
+            ));
+
+            if ($index === 0) {
+                $parent_booking_id = $booking_id;
+                update_post_meta($booking_id, 'ttn_booking_order_id', $order->get_id());
+                $created_booking = true;
+            }
+        }
+    }
+
+    if ($created_booking) {
+        $order->update_meta_data('_ttn_booking_processed', 'yes');
+        $order->save();
+    }
+}
+add_action('woocommerce_order_status_completed', 'ttn_booking_process_wc_order');
+add_action('woocommerce_order_status_processing', 'ttn_booking_process_wc_order');
+add_action('woocommerce_payment_complete', 'ttn_booking_process_wc_order');
 
 function ttn_booking_process_extension_wc_order($order_id) {
     if (!function_exists('wc_get_order')) {
@@ -1441,10 +1605,12 @@ function ttn_booking_shortcode() {
         });
 
         proceedBtn.addEventListener('click', () => {
-            const checkoutUrl = new URL('<?php echo esc_url(home_url('/booking-checkout/')); ?>');
-            checkoutUrl.searchParams.set('bay', encodeURIComponent(selectedBay));
+            const checkoutUrl = new URL('<?php echo esc_url(admin_url('admin-post.php')); ?>');
+            checkoutUrl.searchParams.set('action', 'ttn_booking_start_woocommerce_checkout');
+            checkoutUrl.searchParams.set('ttn_booking_checkout_nonce', '<?php echo esc_js(wp_create_nonce('ttn_booking_start_checkout')); ?>');
+            checkoutUrl.searchParams.set('bay', selectedBay);
             checkoutUrl.searchParams.set('date', selectedDate);
-            checkoutUrl.searchParams.set('time', encodeURIComponent(selectedTime));
+            checkoutUrl.searchParams.set('time', selectedTime);
             checkoutUrl.searchParams.set('duration', document.querySelector('input[name="duration"]:checked').value);
             checkoutUrl.searchParams.set('players', document.querySelector('input[name="players"]:checked').value);
             window.location.href = checkoutUrl.toString();
@@ -1592,6 +1758,8 @@ add_action('admin_post_ttn_booking_submit', 'ttn_booking_submit');
 add_action('admin_post_nopriv_ttn_booking_submit', 'ttn_booking_submit');
 
 function ttn_booking_checkout() {
+    wp_die(__('This payment method is no longer available. Please use WooCommerce checkout.', 'tee-time-nexus-bookings'));
+
     if (!isset($_POST['ttn_checkout_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['ttn_checkout_nonce'])), 'ttn_booking_checkout')) {
         wp_die(__('Security check failed.', 'tee-time-nexus-bookings'));
     }

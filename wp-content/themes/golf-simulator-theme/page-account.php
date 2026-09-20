@@ -570,6 +570,7 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
                             <th>Duration</th>
                             <th>Price</th>
                             <th>Status</th>
+                            <th>Payment</th>
                             <th>Last Updated</th>
                             <th>Reference</th>
                             <th>Actions</th>
@@ -608,6 +609,23 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
                                         <span style="color: var(--primary); font-weight: 700;">Updated</span>
                                     <?php else : ?>
                                         <span style="color: #6ee7b7; font-weight: 600;"><?php echo esc_html($booking['payment_status'] ?: 'Confirmed'); ?></span>
+                                    <?php endif; ?>
+                                </td>
+                                <td data-label="Payment">
+                                    <?php $payment = $booking['payment'] ?? array(); ?>
+                                    <?php if (!empty($payment)) : ?>
+                                        <strong><?php echo esc_html($payment['payment_method'] ?: 'WooCommerce'); ?></strong><br>
+                                        <small style="color: var(--muted);">
+                                            <?php echo esc_html($payment['order_status']); ?>
+                                            <?php if (!empty($payment['card_last_four'])) : ?>
+                                                <?php echo esc_html(' - Card ending ' . $payment['card_last_four']); ?>
+                                            <?php endif; ?>
+                                            <?php if (!empty($payment['paid_at'])) : ?>
+                                                <?php echo esc_html(' - Paid ' . $payment['paid_at']); ?>
+                                            <?php endif; ?>
+                                        </small>
+                                    <?php else : ?>
+                                        <small style="color: var(--muted);">Payment details unavailable</small>
                                     <?php endif; ?>
                                 </td>
                                 <td data-label="Last Updated">

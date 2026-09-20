@@ -2,6 +2,11 @@
 /*
 Template Name: Booking Checkout
 */
+if (function_exists('wc_get_checkout_url')) {
+    wp_safe_redirect(wc_get_checkout_url());
+    exit;
+}
+
 get_header();
 
 $bay = isset($_GET['bay']) ? sanitize_text_field(wp_unslash($_GET['bay'])) : '';
