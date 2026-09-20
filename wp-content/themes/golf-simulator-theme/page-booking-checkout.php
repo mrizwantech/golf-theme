@@ -329,7 +329,23 @@ if (!$bay || !$date || !$time) {
 
     const stripe = Stripe('pk_test_51TxKQ5GvsZrLG3yulrfaXb1jCaIIIcdEVZv28bF4ilRGFWW2gebxfWnuoJdXMGWzkEAgTU3yuPgniadk4UTIahHm00ZFuicsCP');
     const elements = stripe.elements();
-    const cardElement = elements.create('card');
+    const cardElement = elements.create('card', {
+        style: {
+            base: {
+                color: '#ffffff',
+                iconColor: '#ffffff',
+                fontFamily: 'inherit',
+                fontSize: '16px',
+                '::placeholder': {
+                    color: '#b8b8b8'
+                }
+            },
+            invalid: {
+                color: '#ff8a8a',
+                iconColor: '#ff8a8a'
+            }
+        }
+    });
 
     cardElement.mount('#card-element');
 

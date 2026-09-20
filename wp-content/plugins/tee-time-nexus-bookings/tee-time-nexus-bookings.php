@@ -1020,67 +1020,65 @@ function ttn_booking_shortcode() {
             </div>
         <?php endif; ?>
 
-        <p class="booking-note">Select your simulator type, choose a bay, pick your date and time, then proceed to payment.</p>
+        <p class="booking-note">Select your bay type, choose a bay, pick your date and time, then proceed to payment.</p>
 
         <div class="booking-section">
-            <h3>Select Simulator Type</h3>
+            <h3>Select Bay Type</h3>
             <div class="bay-type-selector" id="ttn-bay-type-selector">
                 <label class="bay-type-pill">
-                    <input type="radio" name="bay_type" value="dual" checked />
-                    <span>Dual (Left & Right Handed)</span>
+                    <input type="radio" name="bay_type" value="right-handed" />
+                    <span>Right Handed</span>
                 </label>
                 <label class="bay-type-pill">
-                    <input type="radio" name="bay_type" value="right-handed" />
-                    <span>Right-Handed</span>
+                    <input type="radio" name="bay_type" value="left-handed" />
+                    <span>Left Handed</span>
                 </label>
             </div>
         </div>
 
-        <div class="booking-section" id="ttn-bay-section">
+        <div class="booking-section" id="ttn-bay-section" hidden>
             <h3>Select Bay</h3>
             <div class="bay-selector" id="ttn-bay-selector">
-                <?php $bay_index = 0; ?>
                 <?php foreach ($bays as $bay_key => $bay_label) : ?>
                     <?php $bay_config = ttn_booking_get_bay_config($bay_key); ?>
                     <label class="bay-pill" data-bay-type="<?php echo esc_attr($bay_config['type'] ?? 'right-handed'); ?>">
-                        <input type="radio" name="bay" value="<?php echo esc_attr($bay_label); ?>" data-bay-key="<?php echo esc_attr($bay_key); ?>" data-bay-type="<?php echo esc_attr($bay_config['type'] ?? 'right-handed'); ?>" data-price="<?php echo esc_attr(ttn_booking_get_hourly_price($bay_key)); ?>" <?php checked($bay_index, 0); ?> />
+                        <input type="radio" name="bay" value="<?php echo esc_attr($bay_label); ?>" data-bay-key="<?php echo esc_attr($bay_key); ?>" data-bay-type="<?php echo esc_attr($bay_config['type'] ?? 'right-handed'); ?>" data-price="<?php echo esc_attr(ttn_booking_get_hourly_price($bay_key)); ?>" />
                         <span><?php echo esc_html($bay_label); ?></span>
                     </label>
-                    <?php $bay_index++; ?>
                 <?php endforeach; ?>
             </div>
         </div>
 
-        <div class="booking-section">
+        <div class="booking-section" id="ttn-date-section" hidden>
             <h3>Select Date</h3>
-            <input type="date" id="ttn-date" value="<?php echo esc_attr($default_date); ?>" min="<?php echo esc_attr($default_date); ?>" required>
+            <input type="date" id="ttn-date" min="<?php echo esc_attr($default_date); ?>" required>
         </div>
 
-        <div class="booking-section">
+        <div class="booking-section" id="ttn-duration-section" hidden>
             <h3>Duration (Hours)</h3>
             <div class="duration-selector" id="ttn-duration-selector">
                 <?php for ($h = 1; $h <= 8; $h++) : ?>
                     <label class="duration-pill">
-                        <input type="radio" name="duration" value="<?php echo esc_attr($h); ?>" data-duration="<?php echo esc_attr($h); ?>" <?php checked($h, 1); ?> />
+                        <input type="radio" name="duration" value="<?php echo esc_attr($h); ?>" data-duration="<?php echo esc_attr($h); ?>" />
                         <span><?php echo esc_html($h); ?> <?php echo $h === 1 ? 'Hour' : 'Hours'; ?></span>
                     </label>
                 <?php endfor; ?>
             </div>
         </div>
 
-        <div class="booking-section">
+        <div class="booking-section" id="ttn-players-section" hidden>
             <h3>Players</h3>
             <div class="player-selector" id="ttn-player-selector">
                 <?php for ($p = 1; $p <= 4; $p++) : ?>
                     <label class="player-pill">
-                        <input type="radio" name="players" value="<?php echo esc_attr($p); ?>" data-players="<?php echo esc_attr($p); ?>" <?php checked($p, 1); ?> />
+                        <input type="radio" name="players" value="<?php echo esc_attr($p); ?>" data-players="<?php echo esc_attr($p); ?>" />
                         <span><?php echo esc_html($p); ?></span>
                     </label>
                 <?php endfor; ?>
             </div>
         </div>
 
-        <div class="booking-section">
+        <div class="booking-section" id="ttn-time-section" hidden>
             <h3>Select Start Time</h3>
             <div class="time-slots" id="ttn-time-slots">
                 <?php foreach ($time_slots as $slot) : ?>
@@ -1091,8 +1089,8 @@ function ttn_booking_shortcode() {
             </div>
         </div>
 
-        <div class="booking-summary" id="ttn-selection-summary">
-            Choose a bay, date, and time to continue.
+        <div class="booking-summary" id="ttn-selection-summary" hidden>
+            Complete each selection to continue.
         </div>
 
         <button class="btn btn-primary" id="ttn-proceed-to-payment" disabled>Proceed to Payment</button>
@@ -1103,6 +1101,11 @@ function ttn_booking_shortcode() {
         const bookingRecords = <?php echo wp_json_encode($booking_records); ?>;
         const timeSlots = <?php echo wp_json_encode($time_slots); ?>;
         const baySelector = document.getElementById('ttn-bay-selector');
+        const baySection = document.getElementById('ttn-bay-section');
+        const dateSection = document.getElementById('ttn-date-section');
+        const durationSection = document.getElementById('ttn-duration-section');
+        const playersSection = document.getElementById('ttn-players-section');
+        const timeSection = document.getElementById('ttn-time-section');
         const dateField = document.getElementById('ttn-date');
         const durationSelector = document.getElementById('ttn-duration-selector');
         const timeSlots_el = document.getElementById('ttn-time-slots');
@@ -1112,20 +1115,55 @@ function ttn_booking_shortcode() {
         let selectedBay = null;
         let selectedDate = null;
         let selectedTime = null;
-        let selectedDuration = 1;
-        let selectedPlayers = 1;
+        let selectedDuration = null;
+        let selectedPlayers = null;
+
+        function updateWorkflowVisibility() {
+            const hasType = Boolean(document.querySelector('input[name="bay_type"]:checked'));
+            const hasBay = Boolean(document.querySelector('input[name="bay"]:checked'));
+            const hasDate = Boolean(dateField.value);
+            const hasDuration = Boolean(document.querySelector('input[name="duration"]:checked'));
+            const hasPlayers = Boolean(document.querySelector('input[name="players"]:checked'));
+
+            baySection.hidden = !hasType;
+            dateSection.hidden = !hasBay;
+            durationSection.hidden = !hasBay || !hasDate;
+            playersSection.hidden = !hasBay || !hasDate || !hasDuration;
+            timeSection.hidden = !hasBay || !hasDate || !hasDuration || !hasPlayers;
+            summary.hidden = !hasPlayers;
+        }
+
+        function resetSelectionsAfterTypeChange() {
+            document.querySelectorAll('input[name="bay"], input[name="duration"], input[name="players"]').forEach(input => {
+                input.checked = false;
+            });
+            dateField.value = '';
+            selectedBay = null;
+            selectedDate = null;
+            selectedTime = null;
+            selectedDuration = null;
+            selectedPlayers = null;
+            proceedBtn.disabled = true;
+            updateBaySelectionUI();
+            updateDurationSelectionUI();
+            updatePlayersSelectionUI();
+            updateSelectedTimeRangeUI();
+        }
 
         function updateTimeSlots() {
             const bay = document.querySelector('input[name="bay"]:checked');
-            if (!bay) {
-                timeSlots_el.style.display = 'none';
+            const duration = document.querySelector('input[name="duration"]:checked');
+            const players = document.querySelector('input[name="players"]:checked');
+            if (!bay || !dateField.value || !duration || !players) {
+                timeSection.hidden = true;
                 return;
             }
 
-            timeSlots_el.style.display = 'flex';
+            timeSection.hidden = false;
             selectedBay = bay.value;
             selectedDate = dateField.value;
-            selectedDuration = parseInt(document.querySelector('input[name="duration"]:checked')?.value || 1);
+            selectedDuration = parseInt(duration.value, 10);
+            selectedPlayers = parseInt(players.value, 10);
 
             const today = new Date();
             const selectedDateObj = new Date(selectedDate + 'T00:00:00');
@@ -1214,13 +1252,13 @@ function ttn_booking_shortcode() {
             const bayInput = document.querySelector('input[name="bay"]:checked');
             const bay = bayInput ? bayInput.value : 'No bay selected';
             const date = dateField.value;
-            const duration = document.querySelector('input[name="duration"]:checked')?.value || 1;
-            const players = document.querySelector('input[name="players"]:checked')?.value || 1;
+            const duration = document.querySelector('input[name="duration"]:checked')?.value;
+            const players = document.querySelector('input[name="players"]:checked')?.value;
             const time = selectedTime || 'No time selected';
             const hourlyPrice = parseFloat(bayInput?.getAttribute('data-price') || 0);
             const totalPrice = parseInt(duration) * hourlyPrice;
 
-            if (selectedTime) {
+            if (selectedBay && selectedDate && duration && players && selectedTime) {
                 const endTime = calculateEndTimeLabel(selectedTime, duration);
                 
                 summary.innerHTML = `<strong>${bay}</strong><br/>${date} • ${time} - ${endTime} (${duration}h) • ${players}<br/><strong>Total: $${totalPrice}</strong>`;
@@ -1232,7 +1270,7 @@ function ttn_booking_shortcode() {
                 }
             }
 
-            if (selectedBay && selectedDate && selectedTime) {
+            if (selectedBay && selectedDate && duration && players && selectedTime) {
                 proceedBtn.disabled = false;
             } else {
                 proceedBtn.disabled = true;
@@ -1306,15 +1344,12 @@ function ttn_booking_shortcode() {
                 return;
             }
 
-            let currentlySelectedBayStillVisible = false;
             bayPills.forEach(pill => {
                 const pillType = pill.getAttribute('data-bay-type');
-                if (pillType === checkedType) {
+                const isVisible = checkedType === 'right-handed' || pillType === 'dual';
+                if (isVisible) {
                     pill.style.display = 'inline-flex';
                     const radio = pill.querySelector('input[name="bay"]');
-                    if (radio && radio.checked) {
-                        currentlySelectedBayStillVisible = true;
-                    }
                 } else {
                     pill.style.display = 'none';
                     const radio = pill.querySelector('input[name="bay"]');
@@ -1324,25 +1359,15 @@ function ttn_booking_shortcode() {
                 }
             });
 
-            if (!currentlySelectedBayStillVisible) {
-                const firstVisibleRadio = document.querySelector('.bay-pill[data-bay-type="' + checkedType + '"] input[name="bay"]');
-                if (firstVisibleRadio) {
-                    firstVisibleRadio.checked = true;
-                }
-            }
-
             updateBaySelectionUI();
+            updateWorkflowVisibility();
             selectedTime = null;
             document.querySelectorAll('.time-slot-pill').forEach(btn => btn.classList.remove('selected'));
-            updateTimeSlots();
         }
 
         document.querySelectorAll('input[name="bay_type"]').forEach(radio => {
             radio.addEventListener('change', () => {
-                updateBayTypeSelectionUI();
-                filterBaysByType();
-            });
-            radio.addEventListener('click', () => {
+                resetSelectionsAfterTypeChange();
                 updateBayTypeSelectionUI();
                 filterBaysByType();
             });
@@ -1352,7 +1377,9 @@ function ttn_booking_shortcode() {
             radio.addEventListener('change', () => {
                 updateBaySelectionUI();
                 selectedTime = null;
+                proceedBtn.disabled = true;
                 document.querySelectorAll('.time-slot-pill').forEach(btn => btn.classList.remove('selected'));
+                updateWorkflowVisibility();
                 updateTimeSlots();
             });
 
@@ -1360,6 +1387,7 @@ function ttn_booking_shortcode() {
             // This ensures Bay 1 can be used immediately when state is restored.
             radio.addEventListener('click', () => {
                 updateBaySelectionUI();
+                updateWorkflowVisibility();
                 updateTimeSlots();
             });
         });
@@ -1373,6 +1401,7 @@ function ttn_booking_shortcode() {
                 } else {
                     document.querySelectorAll('.time-slot-pill').forEach(btn => btn.classList.remove('selected'));
                 }
+                updateWorkflowVisibility();
                 updateTimeSlots();
             });
         });
@@ -1381,7 +1410,9 @@ function ttn_booking_shortcode() {
             radio.addEventListener('change', () => {
                 updatePlayersSelectionUI();
                 selectedPlayers = parseInt(radio.value, 10) || 1;
+                updateWorkflowVisibility();
                 updateSummary();
+                updateTimeSlots();
             });
         });
 
@@ -1396,6 +1427,7 @@ function ttn_booking_shortcode() {
         dateField.addEventListener('change', () => {
             selectedTime = null;
             document.querySelectorAll('.time-slot-pill').forEach(btn => btn.classList.remove('selected'));
+            updateWorkflowVisibility();
             updateTimeSlots();
         });
 
@@ -1418,25 +1450,11 @@ function ttn_booking_shortcode() {
             window.location.href = checkoutUrl.toString();
         });
 
-        // Initialize from browser-restored state (e.g., when user navigates back).
-        const checkedBayInitial = document.querySelector('input[name="bay"]:checked');
-        if (checkedBayInitial) {
-            const initialType = checkedBayInitial.getAttribute('data-bay-type');
-            const matchingTypeRadio = document.querySelector('input[name="bay_type"][value="' + initialType + '"]');
-            if (matchingTypeRadio) {
-                matchingTypeRadio.checked = true;
-            }
-        }
         updateBayTypeSelectionUI();
-        filterBaysByType();
         updateBaySelectionUI();
         updateDurationSelectionUI();
         updatePlayersSelectionUI();
-        if (document.querySelector('input[name="bay"]:checked')) {
-            updateTimeSlots();
-        } else {
-            timeSlots_el.style.display = 'none';
-        }
+        updateWorkflowVisibility();
     })();
     </script>
     <?php if ($confirmed) : ?>

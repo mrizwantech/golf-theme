@@ -596,12 +596,12 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
                             $cancel_url = wp_nonce_url(add_query_arg(array('ttn_cancel_booking_id' => $booking['ID']), admin_url('admin-post.php?action=ttn_cancel_user_booking')), 'ttn_cancel_booking_nonce');
                             ?>
                             <tr class="<?php echo $is_cancelled ? 'booking-past' : ($is_past ? 'booking-past' : 'booking-upcoming'); ?>">
-                                <td><?php echo esc_html($booking['bay']); ?></td>
-                                <td><?php echo esc_html($booking['date']); ?></td>
-                                <td><?php echo esc_html($booking['time']); ?> <?php if ($end_time) echo ' - ' . esc_html($end_time); ?></td>
-                                <td><?php echo esc_html($booking['duration']); ?>h</td>
-                                <td>$<?php echo number_format($price, 2); ?></td>
-                                <td>
+                                <td data-label="Bay"><?php echo esc_html($booking['bay']); ?></td>
+                                <td data-label="Date"><?php echo esc_html($booking['date']); ?></td>
+                                <td data-label="Time"><?php echo esc_html($booking['time']); ?> <?php if ($end_time) echo ' - ' . esc_html($end_time); ?></td>
+                                <td data-label="Duration"><?php echo esc_html($booking['duration']); ?>h</td>
+                                <td data-label="Price">$<?php echo number_format($price, 2); ?></td>
+                                <td data-label="Status">
                                     <?php if ($is_cancelled) : ?>
                                         <span style="color: #ff5c5c; font-weight: 700;">Cancelled</span>
                                     <?php elseif (($booking['status'] ?? '') === 'updated') : ?>
@@ -610,15 +610,15 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
                                         <span style="color: #6ee7b7; font-weight: 600;"><?php echo esc_html($booking['payment_status'] ?: 'Confirmed'); ?></span>
                                     <?php endif; ?>
                                 </td>
-                                <td>
+                                <td data-label="Last Updated">
                                     <?php if (!empty($booking['updated_at'])) : ?>
                                         <small style="color: var(--muted);"><?php echo esc_html(mysql2date('M j, Y', $booking['updated_at'])); ?></small>
                                     <?php else : ?>
                                         <small style="color: var(--muted);">—</small>
                                     <?php endif; ?>
                                 </td>
-                                <td><?php echo esc_html($booking['booking_reference']); ?></td>
-                                <td>
+                                <td data-label="Reference"><?php echo esc_html($booking['booking_reference']); ?></td>
+                                <td data-label="Actions">
                                     <?php if (!$is_past && !$is_cancelled) : ?>
                                         <a href="<?php echo esc_url($edit_url); ?>" class="btn btn-small">Edit</a>
                                         <button type="button" class="btn btn-small btn-danger btn-cancel-booking-trigger" data-id="<?php echo esc_attr($booking['ID']); ?>" data-ref="<?php echo esc_attr($booking['booking_reference']); ?>" data-bay="<?php echo esc_attr($booking['bay']); ?>" data-date="<?php echo esc_attr($booking['date']); ?>" data-time="<?php echo esc_attr($booking['time']); ?>">Cancel</button>
@@ -955,6 +955,48 @@ document.addEventListener('DOMContentLoaded', function() {
 
 .bookings-table .booking-past {
     opacity: 0.5;
+}
+
+@media (max-width: 700px) {
+    .bookings-table,
+    .bookings-table tbody,
+    .bookings-table tr,
+    .bookings-table td {
+        display: block;
+    }
+
+    .bookings-table thead {
+        display: none;
+    }
+
+    .bookings-table {
+        margin: 16px 0;
+    }
+
+    .bookings-table tr {
+        margin-bottom: 16px;
+        padding: 12px;
+        border: 1px solid var(--border-soft, rgba(255, 255, 255, 0.08));
+        border-radius: 8px;
+    }
+
+    .bookings-table td {
+        display: grid;
+        grid-template-columns: minmax(96px, 0.8fr) minmax(0, 1.2fr);
+        gap: 12px;
+        padding: 9px 0;
+    }
+
+    .bookings-table td::before {
+        content: attr(data-label);
+        color: var(--muted, #b8b8b8);
+        font-weight: 700;
+    }
+
+    .bookings-table td:last-child {
+        border-bottom: 0;
+        align-items: center;
+    }
 }
 
 .badge-past {
