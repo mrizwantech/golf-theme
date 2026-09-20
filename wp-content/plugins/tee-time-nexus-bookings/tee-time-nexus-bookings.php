@@ -25,6 +25,11 @@ function ttn_booking_send_mail($to, $subject, $message) {
     return $sent;
 }
 
+function ttn_booking_get_notification_email() {
+    $email = sanitize_email(get_option('ttn_booking_notification_email', 'sales@teetimenexus.com'));
+    return is_email($email) ? $email : get_option('admin_email');
+}
+
 function ttn_booking_get_end_time_label($time_slots, $start_index, $duration) {
     $start_slot = isset($time_slots[$start_index]) ? $time_slots[$start_index] : null;
     if (!$start_slot) {
@@ -564,6 +569,7 @@ function ttn_booking_bays_admin_page() {
         update_option('ttn_bays', $bays);
         update_option('ttn_standard_hourly_price', max(0, (float) ($_POST['standard_hourly_price'] ?? 50)));
         update_option('ttn_premium_hourly_price', max(0, (float) ($_POST['premium_hourly_price'] ?? 65)));
+        update_option('ttn_booking_notification_email', sanitize_email(wp_unslash($_POST['booking_notification_email'] ?? 'sales@teetimenexus.com')));
         ttn_booking_sync_bay_products($bays);
         echo '<div class="notice notice-success is-dismissible"><p>Bay settings saved.</p></div>';
     }
@@ -598,6 +604,8 @@ function ttn_booking_bays_admin_page() {
             <h2>Hourly prices</h2>
             <p><label>Standard <input type="number" min="0" step="0.01" name="standard_hourly_price" value="<?php echo esc_attr(get_option('ttn_standard_hourly_price', 50)); ?>"></label>
             <label>Premium <input type="number" min="0" step="0.01" name="premium_hourly_price" value="<?php echo esc_attr(get_option('ttn_premium_hourly_price', 65)); ?>"></label></p>
+            <h2>Booking notifications</h2>
+            <p><label>Alert email <input type="email" class="regular-text" name="booking_notification_email" value="<?php echo esc_attr(ttn_booking_get_notification_email()); ?>"></label></p>
             <p><button type="submit" class="button button-primary">Save Bay Settings</button></p>
         </form>
     </div>
@@ -983,6 +991,7 @@ function ttn_booking_process_wc_order($order_id) {
     $customer_phone = $order->get_billing_phone();
     $user_id = $order->get_customer_id();
     $created_booking = false;
+    $confirmed_reservations = array();
 
     foreach ($order->get_items() as $item) {
         $bay = $item->get_meta('ttn_booking_bay');
@@ -1037,11 +1046,59 @@ function ttn_booking_process_wc_order($order_id) {
                 $parent_booking_id = $booking_id;
                 update_post_meta($booking_id, 'ttn_booking_order_id', $order->get_id());
                 $created_booking = true;
+                $confirmed_reservations[] = array(
+                    'booking_id' => $booking_id,
+                    'bay' => $bay,
+                    'date' => $date,
+                    'time' => $time,
+                    'end_time' => ttn_booking_get_end_time_label($time_slots, $start_index, $duration),
+                    'duration' => $duration,
+                    'players' => $players,
+                    'total_price' => $total_price,
+                );
             }
         }
     }
 
     if ($created_booking) {
+        foreach ($confirmed_reservations as $reservation) {
+            $booking_reference = 'TTN-' . str_pad((string) $reservation['booking_id'], 6, '0', STR_PAD_LEFT);
+            $email_rows = array(
+                'Booking reference' => $booking_reference,
+                'Bay' => ttn_get_bay_display_name($reservation['bay']),
+                'Date' => $reservation['date'],
+                'Time' => $reservation['time'] . ' - ' . $reservation['end_time'],
+                'Duration' => $reservation['duration'] . ($reservation['duration'] === 1 ? ' hour' : ' hours'),
+                'Players' => (string) $reservation['players'],
+                'Amount paid' => '$' . number_format($reservation['total_price'], 2),
+                'Payment status' => 'Paid',
+            );
+
+            if ($customer_email) {
+                $customer_message = ttn_booking_render_email(
+                    'Booking Confirmed',
+                    'Hi ' . $customer_name . ', your payment was received and your reservation is confirmed.',
+                    $email_rows,
+                    home_url('/my-account/'),
+                    false
+                );
+                ttn_booking_send_mail($customer_email, $customer_message['subject'], $customer_message['message']);
+            }
+
+            $admin_message = ttn_booking_render_email(
+                'New Booking Confirmed',
+                'A booking payment was received through WooCommerce.',
+                array_merge(array(
+                    'Customer' => $customer_name,
+                    'Email' => $customer_email,
+                    'Phone' => $customer_phone,
+                    'WooCommerce order' => '#' . $order->get_order_number(),
+                ), $email_rows),
+                home_url('/my-account/')
+            );
+            ttn_booking_send_mail(ttn_booking_get_notification_email(), 'Booking Confirmed: ' . $customer_name . ' - ' . $booking_reference, $admin_message['message']);
+        }
+
         $order->update_meta_data('_ttn_booking_processed', 'yes');
         $order->save();
     }
@@ -1078,6 +1135,11 @@ function ttn_booking_process_extension_wc_order($order_id) {
                 'new_total_price' => $new_total_price,
                 'difference' => $price_diff,
             ));
+
+            $extension_order_ids = get_post_meta($booking_id, 'ttn_booking_extension_order_ids', true);
+            $extension_order_ids = is_array($extension_order_ids) ? $extension_order_ids : array();
+            $extension_order_ids[] = $order->get_id();
+            update_post_meta($booking_id, 'ttn_booking_extension_order_ids', array_values(array_unique(array_map('intval', $extension_order_ids))));
 
             $order->update_meta_data('_ttn_booking_extension_processed', 'yes');
             $order->save();
@@ -2412,7 +2474,7 @@ function ttn_apply_booking_schedule_update($booking_id, $data) {
     ttn_booking_send_mail($email, $customer_email['subject'], $customer_email['message']);
 
     // Admin notification
-    $admin_email = get_option('admin_email');
+    $admin_email = ttn_booking_get_notification_email();
     $admin_email_message = ttn_booking_render_email(
         'Booking Modified',
         'A reservation was modified by the customer.' . ($difference < 0 ? ' ' . $refund_note : ''),
@@ -2555,6 +2617,46 @@ function ttn_crud_update_user_booking($booking_id, $user_email, $booking_data) {
  * Cancel a user booking (CRUD: Mark Cancelled)
  * Returns: array with 'success' boolean and 'message' string
  */
+function ttn_booking_refund_woocommerce_orders($booking_id) {
+    if (!function_exists('wc_get_order') || !function_exists('wc_create_refund')) {
+        return array('issued' => false, 'amount' => 0.0);
+    }
+
+    $order_ids = array_filter(array_merge(
+        array(intval(get_post_meta($booking_id, 'ttn_booking_order_id', true))),
+        (array) get_post_meta($booking_id, 'ttn_booking_extension_order_ids', true)
+    ));
+    $refund_total = 0.0;
+
+    foreach (array_unique(array_map('intval', $order_ids)) as $order_id) {
+        $order = wc_get_order($order_id);
+        if (!$order) {
+            continue;
+        }
+
+        $refundable_amount = method_exists($order, 'get_remaining_refund_amount')
+            ? (float) $order->get_remaining_refund_amount()
+            : max(0, (float) $order->get_total() - abs((float) $order->get_total_refunded()));
+        if ($refundable_amount <= 0) {
+            continue;
+        }
+
+        $refund = wc_create_refund(array(
+            'amount' => $refundable_amount,
+            'reason' => sprintf('Customer cancelled booking TTN-%06d', $booking_id),
+            'order_id' => $order_id,
+            'refund_payment' => true,
+            'restock_items' => false,
+        ));
+
+        if (!is_wp_error($refund)) {
+            $refund_total += $refundable_amount;
+        }
+    }
+
+    return array('issued' => $refund_total > 0, 'amount' => $refund_total);
+}
+
 function ttn_crud_cancel_user_booking($booking_id, $user_email) {
     // Verify booking belongs to user
     $booking_email = get_post_meta($booking_id, 'ttn_booking_email', true);
@@ -2580,18 +2682,13 @@ function ttn_crud_cancel_user_booking($booking_id, $user_email) {
         wp_delete_post($child_id, true);
     }
 
-    // Attempt Stripe refund for the full booking amount if paid
+    // Refund the linked WooCommerce order(s) through their active payment gateway.
     $refund_issued = false;
-    $paid_total = floatval(get_post_meta($booking_id, 'ttn_booking_total_price', true) ?: 0);
-    $charge_id = get_post_meta($booking_id, 'ttn_booking_stripe_charge_id', true)
-        ?: get_post_meta($booking_id, 'ttn_booking_stripe_token', true);
-
-    if ($charge_id && (strpos($charge_id, 'ch_') === 0 || strpos($charge_id, 'py_') === 0) && $paid_total > 0) {
-        $refund_id = ttn_booking_refund_stripe_amount($charge_id, $paid_total);
-        if ($refund_id) {
-            $refund_issued = true;
-            update_post_meta($booking_id, 'ttn_booking_refund_id', $refund_id);
-        }
+    $refund_total = 0.0;
+    $woocommerce_refund = ttn_booking_refund_woocommerce_orders($booking_id);
+    if ($woocommerce_refund['issued']) {
+        $refund_issued = true;
+        $refund_total = $woocommerce_refund['amount'];
     }
 
     $cancel_time = current_time('mysql');
@@ -2608,7 +2705,7 @@ function ttn_crud_cancel_user_booking($booking_id, $user_email) {
 
     $customer_email = ttn_booking_render_email(
         'Reservation Cancelled',
-        'Hi ' . $name . ', your reservation (' . $booking_reference . ') has been cancelled.' . ($refund_issued ? ' A full refund of $' . number_format($paid_total, 2) . ' has been processed.' : ''),
+        'Hi ' . $name . ', your reservation (' . $booking_reference . ') has been cancelled.' . ($refund_issued ? ' A refund of $' . number_format($refund_total, 2) . ' has been processed.' : ''),
         array(
             'Booking reference' => $booking_reference,
             'Bay' => ttn_get_bay_display_name($bay),
@@ -2622,7 +2719,7 @@ function ttn_crud_cancel_user_booking($booking_id, $user_email) {
     ttn_booking_send_mail($booking_email, $customer_email['subject'], $customer_email['message']);
 
     // Notify Admin
-    $admin_email = get_option('admin_email');
+    $admin_email = ttn_booking_get_notification_email();
     $admin_email_message = ttn_booking_render_email(
         'Booking Cancelled by Customer',
         'Customer ' . $name . ' cancelled reservation ' . $booking_reference . '.' . ($refund_issued ? ' Refund processed.' : ''),
@@ -2634,7 +2731,7 @@ function ttn_crud_cancel_user_booking($booking_id, $user_email) {
             'Date' => $date,
             'Time' => $time,
             'Status' => 'Cancelled',
-            'Refund' => $refund_issued ? '$' . number_format($paid_total, 2) : 'No charge ID',
+            'Refund' => $refund_issued ? '$' . number_format($refund_total, 2) : 'Not processed',
         ),
         home_url('/my-account/')
     );
