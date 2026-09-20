@@ -921,23 +921,6 @@ document.addEventListener('DOMContentLoaded', function() {
     color: var(--text);
 }
 
-.membership-upgrade-payment {
-    display: grid;
-    flex: 1 1 260px;
-    gap: 6px;
-    color: var(--muted);
-    font-weight: 700;
-}
-
-.membership-upgrade-payment .stripe-card-element {
-    min-width: 240px;
-}
-
-#membership-upgrade-card-error {
-    color: #b42318;
-    font-weight: 600;
-}
-
 @media (max-width: 700px) {
     .account-membership-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));

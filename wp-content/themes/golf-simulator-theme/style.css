@@ -1205,12 +1205,6 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     color: var(--field-text);
     box-shadow: 0 0 0 3px rgba(15, 81, 50, 0.1);
 }
-.stripe-card-element {
-    padding: 12px 14px;
-    border: 2px solid rgba(15, 81, 50, 0.2);
-    border-radius: 12px;
-    background: #fff;
-}
 .notice {
     padding: 14px 18px;
     margin: 18px 0 24px;

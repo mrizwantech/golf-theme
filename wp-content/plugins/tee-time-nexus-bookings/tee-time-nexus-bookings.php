@@ -494,9 +494,6 @@ function ttn_save_booking_metadata($post_id, $booking_data) {
     if (isset($booking_data['payment_status'])) {
         update_post_meta($post_id, 'ttn_booking_payment_status', $booking_data['payment_status']);
     }
-    if (isset($booking_data['stripe_token'])) {
-        update_post_meta($post_id, 'ttn_booking_stripe_token', $booking_data['stripe_token']);
-    }
     if (isset($booking_data['parent_id'])) {
         update_post_meta($post_id, 'ttn_booking_parent_id', $booking_data['parent_id']);
     }
@@ -1940,200 +1937,6 @@ function ttn_booking_submit() {
 add_action('admin_post_ttn_booking_submit', 'ttn_booking_submit');
 add_action('admin_post_nopriv_ttn_booking_submit', 'ttn_booking_submit');
 
-function ttn_booking_checkout() {
-    wp_die(__('This payment method is no longer available. Please use WooCommerce checkout.', 'tee-time-nexus-bookings'));
-
-    if (!isset($_POST['ttn_checkout_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['ttn_checkout_nonce'])), 'ttn_booking_checkout')) {
-        wp_die(__('Security check failed.', 'tee-time-nexus-bookings'));
-    }
-
-    $name = sanitize_text_field(wp_unslash($_POST['name']));
-    $email = sanitize_email(wp_unslash($_POST['email']));
-    $phone = sanitize_text_field(wp_unslash($_POST['phone']));
-    $bay = sanitize_text_field(wp_unslash($_POST['bay']));
-    $date = sanitize_text_field(wp_unslash($_POST['date']));
-    $time = trim(sanitize_text_field(wp_unslash($_POST['time'])));
-    $duration = isset($_POST['duration']) ? intval($_POST['duration']) : 1;
-    $players = isset($_POST['players']) ? max(1, min(4, intval($_POST['players']))) : 1;
-    $stripe_token = isset($_POST['stripeToken']) ? sanitize_text_field(wp_unslash($_POST['stripeToken'])) : '';
-    $new_password = isset($_POST['create_account_password']) ? (string) wp_unslash($_POST['create_account_password']) : '';
-    $new_password_confirm = isset($_POST['create_account_password_confirm']) ? (string) wp_unslash($_POST['create_account_password_confirm']) : '';
-
-    if (!ttn_booking_get_bay_config($bay)) {
-        wp_die(__('Please choose a valid bay.', 'tee-time-nexus-bookings'));
-    }
-
-    if (!$stripe_token) {
-        wp_die(__('Payment token is missing.', 'tee-time-nexus-bookings'));
-    }
-
-    if (!$time || $time === 'null' || $time === 'undefined') {
-        wp_die(__('Please select a valid time slot and try again.', 'tee-time-nexus-bookings'));
-    }
-
-    $time_slots = ttn_booking_get_time_slots();
-    $selected_slot = null;
-    $start_index = null;
-    
-    // Normalize time for comparison
-    $time_normalized = ttn_normalize_string($time);
-    
-    foreach ($time_slots as $index => $slot) {
-        $slot_normalized = ttn_normalize_string($slot['label']);
-        if ($slot_normalized === $time_normalized) {
-            $selected_slot = $slot;
-            $start_index = $index;
-            break;
-        }
-    }
-
-    if (!$selected_slot) {
-        // Debug: show what we received vs what we expected
-        $available_times = array_map(function($s) { return $s['label']; }, $time_slots);
-        $error_msg = sprintf(
-            'Invalid time slot. Received: "%s" (length: %d). Available: %s',
-            $time,
-            strlen($time),
-            implode(', ', $available_times)
-        );
-        wp_die(__($error_msg, 'tee-time-nexus-bookings'));
-    }
-
-    // Check if all consecutive slots are available
-    if ($start_index + $duration > count($time_slots)) {
-        wp_die(__('Not enough consecutive hours available for the selected time.', 'tee-time-nexus-bookings'));
-    }
-
-    // Check all consecutive slots for conflicts
-    $bookings = ttn_booking_get_booking_records();
-    for ($i = 0; $i < $duration; $i++) {
-        $check_slot = $time_slots[$start_index + $i];
-        if (ttn_booking_is_slot_in_past($date, $check_slot['start'])) {
-            wp_die(__('Cannot book a time slot in the past.', 'tee-time-nexus-bookings'));
-        }
-        
-        // Check if booked
-        foreach ($bookings as $booking) {
-            $booking_bay = ttn_normalize_bay_name($booking['bay']);
-            $check_bay = ttn_normalize_bay_name($bay);
-            
-            if ($booking_bay === $check_bay && $booking['date'] === $date && $booking['time'] === $check_slot['label']) {
-                wp_die(__('One or more of the requested time slots are no longer available.', 'tee-time-nexus-bookings'));
-            }
-        }
-    }
-
-    // Create booking entries for each hour
-    $total_price = $duration * ttn_booking_get_hourly_price($bay);
-    $parent_booking_id = null;
-    $account_created = ttn_booking_maybe_create_account($email, $name, $new_password, $new_password_confirm);
-    $booking_user_id = get_current_user_id();
-
-    for ($i = 0; $i < $duration; $i++) {
-        $hour_slot = $time_slots[$start_index + $i];
-        $hour_time_label = $hour_slot['label'];
-
-        $post_id = wp_insert_post(array(
-            'post_type' => 'ttn_booking',
-            'post_status' => 'publish',
-            'post_title' => $name . ' - ' . $bay . ' - ' . $date,
-            'post_content' => sprintf(
-                "Bay: %s\nDate: %s\nTime: %s\nDuration: %d hours\nPlayers: %d\nName: %s\nPhone: %s\nEmail: %s\nStripe Token: %s",
-                $bay,
-                $date,
-                $hour_time_label,
-                $duration,
-                $players,
-                $name,
-                $phone,
-                $email,
-                $stripe_token
-            ),
-        ), true);
-
-        if (!is_wp_error($post_id)) {
-            // Save booking metadata using centralized helper
-            ttn_save_booking_metadata($post_id, array(
-                'name' => $name,
-                'phone' => $phone,
-                'email' => $email,
-                'bay' => $bay,
-                'date' => $date,
-                'time' => $hour_time_label,
-                'duration' => $duration,
-                'players' => $players,
-                'total_price' => $total_price,
-                'payment_status' => 'Payment submitted - transaction verification required',
-                'stripe_token' => $stripe_token,
-                'parent_id' => ($i > 0) ? $parent_booking_id : null,
-                'user_id' => $booking_user_id,
-            ));
-
-            // Keep track of parent booking
-            if ($i === 0) {
-                $parent_booking_id = $post_id;
-            }
-        }
-    }
-
-    // Send confirmation email (only once, from first booking)
-    if ($parent_booking_id) {
-        $end_time_label = ttn_booking_get_end_time_label($time_slots, $start_index, $duration);
-        $account_url = ttn_booking_get_account_login_url();
-        $booking_reference = 'TTN-' . str_pad((string) $parent_booking_id, 6, '0', STR_PAD_LEFT);
-        $payment_status = 'Payment submitted - transaction verification required';
-
-        $intro = 'Hi ' . $name . ', your reservation details are below. Keep this email for your records.';
-        if ($account_created && $new_password !== '') {
-            $intro .= ' We also set up your account so you can log in with this email to manage future bookings.';
-        }
-        $customer_email = ttn_booking_render_email(
-            'Reservation received',
-            $intro,
-            array(
-                'Booking reference' => $booking_reference,
-                'Bay' => ttn_get_bay_display_name($bay),
-                'Date' => $date,
-                'Time' => $selected_slot['label'] . ' - ' . $end_time_label,
-                'Duration' => $duration . ($duration === 1 ? ' hour' : ' hours'),
-                'Players' => (string) $players,
-                'Amount' => '$' . number_format($total_price, 2),
-                'Payment status' => $payment_status,
-            ),
-            $account_url,
-            false
-        );
-        ttn_booking_send_mail($email, $customer_email['subject'], $customer_email['message']);
-
-        // Send admin notification
-        $admin_email = get_option('admin_email');
-        $admin_subject = 'New Booking: ' . $name . ' - ' . $bay;
-        $admin_email_message = ttn_booking_render_email(
-            'New booking received',
-            'A new reservation was submitted through the Tee Time Nexus booking form.',
-            array(
-                'Booking reference' => $booking_reference,
-                'Customer' => $name,
-                'Email' => $email,
-                'Phone' => $phone,
-                'Bay' => ttn_get_bay_display_name($bay),
-                'Date' => $date,
-                'Time' => $selected_slot['label'] . ' - ' . $end_time_label,
-                'Duration' => $duration . ($duration === 1 ? ' hour' : ' hours'),
-                'Players' => (string) $players,
-                'Amount' => '$' . number_format($total_price, 2),
-                'Payment status' => $payment_status,
-            ),
-            $account_url
-        );
-        ttn_booking_send_mail($admin_email, $admin_subject, $admin_email_message['message']);
-    }
-
-    wp_safe_redirect(home_url('/book-a-bay/?booking=confirmed&id=' . $parent_booking_id));
-    exit;
-}
-add_action('admin_post_ttn_booking_checkout', 'ttn_booking_checkout');
-add_action('admin_post_nopriv_ttn_booking_checkout', 'ttn_booking_checkout');
 
 // ===== ADMIN BOOKING DASHBOARD =====
 
@@ -2424,42 +2227,50 @@ function ttn_send_booking_reminder($booking_id) {
     ttn_booking_send_mail($email, $customer_email['subject'], $customer_email['message']);
 }
 
-function ttn_booking_get_stripe_secret_key() {
-    if (class_exists('WC_Stripe_API') && method_exists('WC_Stripe_API', 'get_secret_key')) {
-        return WC_Stripe_API::get_secret_key();
-    }
-    $settings = get_option('woocommerce_stripe_settings', array());
-    $is_test = !empty($settings['testmode']) && 'yes' === $settings['testmode'];
-    return $is_test ? ($settings['test_secret_key'] ?? '') : ($settings['secret_key'] ?? '');
-}
-
-function ttn_booking_refund_stripe_amount($charge_id, $amount) {
-    $secret_key = ttn_booking_get_stripe_secret_key();
-    if (!$secret_key || !$charge_id || $amount <= 0) {
-        return false;
+function ttn_booking_refund_woocommerce_partial($booking_id, $refund_amount) {
+    if (!function_exists('wc_get_order') || !function_exists('wc_create_refund') || $refund_amount <= 0) {
+        return array('issued' => false, 'amount' => 0.0);
     }
 
-    $response = wp_remote_post('https://api.stripe.com/v1/refunds', array(
-        'timeout' => 30,
-        'headers' => array(
-            'Authorization' => 'Basic ' . base64_encode($secret_key . ':'),
-        ),
-        'body' => array(
-            'charge' => $charge_id,
-            'amount' => (int) round($amount * 100),
-        ),
+    $order_ids = array_filter(array_merge(
+        array(intval(get_post_meta($booking_id, 'ttn_booking_order_id', true))),
+        (array) get_post_meta($booking_id, 'ttn_booking_extension_order_ids', true)
     ));
+    $remaining_amount = (float) $refund_amount;
+    $refunded_amount = 0.0;
 
-    if (is_wp_error($response)) {
-        return false;
+    foreach (array_unique(array_map('intval', $order_ids)) as $order_id) {
+        if ($remaining_amount <= 0) {
+            break;
+        }
+
+        $order = wc_get_order($order_id);
+        if (!$order) {
+            continue;
+        }
+
+        $available_amount = method_exists($order, 'get_remaining_refund_amount')
+            ? (float) $order->get_remaining_refund_amount()
+            : max(0, (float) $order->get_total() - abs((float) $order->get_total_refunded()));
+        $amount = min($remaining_amount, $available_amount);
+        if ($amount <= 0) {
+            continue;
+        }
+
+        $refund = wc_create_refund(array(
+            'amount' => $amount,
+            'reason' => sprintf('Booking duration reduction TTN-%06d', $booking_id),
+            'order_id' => $order_id,
+            'refund_payment' => true,
+            'restock_items' => false,
+        ));
+        if (!is_wp_error($refund)) {
+            $refunded_amount += $amount;
+            $remaining_amount -= $amount;
+        }
     }
 
-    $body = json_decode(wp_remote_retrieve_body($response), true);
-    if (wp_remote_retrieve_response_code($response) < 300 && !empty($body['id'])) {
-        return $body['id'];
-    }
-
-    return false;
+    return array('issued' => $refunded_amount > 0, 'amount' => $refunded_amount);
 }
 
 function ttn_apply_booking_schedule_update($booking_id, $data) {
@@ -2494,21 +2305,11 @@ function ttn_apply_booking_schedule_update($booking_id, $data) {
     $refund_note = '';
 
     if ($difference < 0 && $refund_amount > 0) {
-        $charge_id = get_post_meta($booking_id, 'ttn_booking_stripe_charge_id', true)
-            ?: get_post_meta($booking_id, 'ttn_booking_stripe_token', true);
-
-        if ($charge_id && strpos($charge_id, 'ch_') === 0 || strpos($charge_id, 'py_') === 0) {
-            $refund_id = ttn_booking_refund_stripe_amount($charge_id, $refund_amount);
-            if ($refund_id) {
-                $refund_issued = true;
-                update_post_meta($booking_id, 'ttn_booking_refund_id', $refund_id);
-                $refund_note = sprintf('Refund of $%s issued.', number_format($refund_amount, 2));
-            }
-        }
-
-        if (!$refund_issued) {
-            $refund_note = sprintf('Refund of $%s difference recorded.', number_format($refund_amount, 2));
-        }
+        $refund_result = ttn_booking_refund_woocommerce_partial($booking_id, $refund_amount);
+        $refund_issued = $refund_result['issued'];
+        $refund_note = $refund_issued
+            ? sprintf('Refund of $%s issued.', number_format($refund_result['amount'], 2))
+            : sprintf('Refund of $%s could not be processed automatically.', number_format($refund_amount, 2));
     }
 
     // 3. Create new consecutive child posts if duration > 1
