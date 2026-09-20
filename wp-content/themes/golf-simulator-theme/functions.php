@@ -18,6 +18,10 @@ require_once get_template_directory() . '/inc/auth.php';
 require_once get_template_directory() . '/inc/welcome-signup.php';
 
 function golf_simulator_theme_render_launch_screen() {
+    if (!is_front_page()) {
+        return;
+    }
+
     $template = get_template_directory() . '/page-splash.php';
     if (!file_exists($template)) {
         return;
@@ -142,13 +146,15 @@ function golf_simulator_theme_enqueue_assets() {
     $style_version = file_exists(get_stylesheet_directory() . '/style.css') ? filemtime(get_stylesheet_directory() . '/style.css') : $theme_version;
 
     wp_enqueue_style('golf-simulator-theme-style', get_stylesheet_uri(), array(), $style_version);
-    wp_enqueue_script(
-        'golf-simulator-theme-slider',
-        get_template_directory_uri() . '/assets/js/slider.js',
-        array(),
-        $theme_version,
-        true
-    );
+    if (is_front_page()) {
+        wp_enqueue_script(
+            'golf-simulator-theme-slider',
+            get_template_directory_uri() . '/assets/js/slider.js',
+            array(),
+            $theme_version,
+            true
+        );
+    }
 }
 add_action('wp_enqueue_scripts', 'golf_simulator_theme_enqueue_assets');
 
