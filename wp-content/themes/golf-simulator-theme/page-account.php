@@ -617,6 +617,9 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
                                         <strong><?php echo esc_html($payment['payment_method'] ?: 'WooCommerce'); ?></strong><br>
                                         <small style="color: var(--muted);">
                                             <?php echo esc_html($payment['order_status']); ?>
+                                            <?php if (!empty($booking['member_free_hours'])) : ?>
+                                                <?php echo esc_html(' - ' . $booking['member_free_hours'] . ' member ' . ($booking['member_free_hours'] === 1 ? 'hour' : 'hours') . ' redeemed'); ?>
+                                            <?php endif; ?>
                                             <?php if (!empty($payment['card_last_four'])) : ?>
                                                 <?php echo esc_html(' - Card ending ' . $payment['card_last_four']); ?>
                                             <?php endif; ?>

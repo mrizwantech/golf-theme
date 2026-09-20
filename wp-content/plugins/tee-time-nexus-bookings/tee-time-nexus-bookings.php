@@ -442,6 +442,7 @@ function ttn_get_user_bookings($email) {
                 'status' => get_post_meta($post_id, 'ttn_booking_status', true) ?: 'confirmed',
                 'updated_at' => get_post_meta($post_id, 'ttn_booking_updated_at', true) ?: get_the_modified_date('Y-m-d H:i:s', $post_id),
                 'payment_status' => get_post_meta($post_id, 'ttn_booking_payment_status', true),
+                'member_free_hours' => intval(get_post_meta($post_id, 'ttn_booking_member_free_hours', true)),
                 'payment' => ttn_booking_get_order_payment_details(get_post_meta($post_id, 'ttn_booking_order_id', true)),
                 'booking_reference' => 'TTN-' . str_pad((string) $post_id, 6, '0', STR_PAD_LEFT),
             );
@@ -480,6 +481,12 @@ function ttn_save_booking_metadata($post_id, $booking_data) {
     }
     if (isset($booking_data['players'])) {
         update_post_meta($post_id, 'ttn_booking_players', $booking_data['players']);
+    }
+    if (isset($booking_data['club_preference'])) {
+        update_post_meta($post_id, 'ttn_booking_club_preference', $booking_data['club_preference']);
+    }
+    if (isset($booking_data['member_booking'])) {
+        update_post_meta($post_id, 'ttn_booking_member_booking', $booking_data['member_booking']);
     }
     if (isset($booking_data['total_price'])) {
         update_post_meta($post_id, 'ttn_booking_total_price', $booking_data['total_price']);
@@ -788,6 +795,57 @@ function ttn_booking_get_bay_product_id($bay_name) {
     return 0;
 }
 
+function ttn_booking_get_member_free_hours($user_id, $date, $time, $duration) {
+    if (!$user_id || !function_exists('golf_simulator_theme_get_user_membership_record')) {
+        return 0;
+    }
+
+    $membership = golf_simulator_theme_get_user_membership_record($user_id);
+    if (!$membership || $membership->status !== 'active' || $membership->payment_status !== 'paid') {
+        return 0;
+    }
+
+    $daily_allowances = array('PAR' => 1, 'BIRDIE' => 1, 'ALBATROSS' => 2);
+    $daily_allowance = $daily_allowances[$membership->package_name] ?? 0;
+    if (!$daily_allowance) {
+        return 0;
+    }
+
+    $time_slots = ttn_booking_get_time_slots();
+    $slot_index = array_search($time, array_column($time_slots, 'label'), true);
+    if ($slot_index === false) {
+        return 0;
+    }
+
+    if ($membership->package_name === 'PAR') {
+        $weekday = (int) wp_date('N', strtotime($date));
+        $start_hour = (int) substr($time_slots[$slot_index]['start'], 0, 2);
+        if ($weekday > 5 || $start_hour < 6 || $start_hour >= 17) {
+            return 0;
+        }
+    }
+
+    $used_hours = 0;
+    $bookings = get_posts(array(
+        'post_type' => 'ttn_booking',
+        'post_status' => 'publish',
+        'numberposts' => -1,
+        'meta_query' => array(
+            array('key' => 'ttn_booking_user_id', 'value' => $user_id),
+            array('key' => 'ttn_booking_date', 'value' => $date),
+        ),
+        'fields' => 'ids',
+    ));
+    foreach ($bookings as $booking_id) {
+        if (get_post_meta($booking_id, 'ttn_booking_parent_id', true) || get_post_meta($booking_id, 'ttn_booking_status', true) === 'cancelled') {
+            continue;
+        }
+        $used_hours += (int) get_post_meta($booking_id, 'ttn_booking_member_free_hours', true);
+    }
+
+    return max(0, min((int) $duration, $daily_allowance - $used_hours));
+}
+
 function ttn_booking_add_to_cart_and_redirect($bay_name, $booking_data = array()) {
     if (!class_exists('WC_Cart') || !function_exists('wc_get_checkout_url') || !function_exists('WC') || !function_exists('wc_load_cart')) {
         return false;
@@ -827,6 +885,8 @@ function ttn_booking_add_to_cart_and_redirect($bay_name, $booking_data = array()
                 'time' => isset($booking_data['time']) ? $booking_data['time'] : '',
                 'duration' => isset($booking_data['duration']) ? max(1, min(8, intval($booking_data['duration']))) : 1,
                 'players' => isset($booking_data['players']) ? max(1, min(4, intval($booking_data['players']))) : 1,
+                'club_preference' => isset($booking_data['club_preference']) ? sanitize_key($booking_data['club_preference']) : 'own-clubs',
+                'member_free_hours' => isset($booking_data['member_free_hours']) ? max(0, intval($booking_data['member_free_hours'])) : 0,
             );
         }
 
@@ -891,7 +951,8 @@ function ttn_booking_set_cart_item_price($cart) {
             $cart_item['data']->set_price((float) $cart_item['ttn_booking_extension']['price_difference']);
         } elseif (!empty($cart_item['ttn_booking']['bay']) && isset($cart_item['data'])) {
             $duration = max(1, min(8, intval($cart_item['ttn_booking']['duration'] ?? 1)));
-            $cart_item['data']->set_price(ttn_booking_get_hourly_price($cart_item['ttn_booking']['bay']) * $duration);
+            $free_hours = max(0, min($duration, intval($cart_item['ttn_booking']['member_free_hours'] ?? 0)));
+            $cart_item['data']->set_price(ttn_booking_get_hourly_price($cart_item['ttn_booking']['bay']) * ($duration - $free_hours));
         }
     }
 }
@@ -913,6 +974,12 @@ function ttn_booking_render_cart_item_data($item_data, $cart_item) {
             'key' => __('Reservation', 'tee-time-nexus-bookings'),
             'value' => esc_html($summary),
         );
+        if (!empty($booking['member_free_hours'])) {
+            $item_data[] = array(
+                'key' => __('Member Credit', 'tee-time-nexus-bookings'),
+                'value' => esc_html($booking['member_free_hours'] . ' free ' . ($booking['member_free_hours'] === 1 ? 'hour' : 'hours')),
+            );
+        }
     }
 
     return $item_data;
@@ -936,6 +1003,8 @@ function ttn_booking_store_order_line_data($item, $cart_item_key, $values, $orde
         $item->add_meta_data('ttn_booking_time', $booking['time']);
         $item->add_meta_data('ttn_booking_duration', $booking['duration']);
         $item->add_meta_data('ttn_booking_players', $booking['players']);
+        $item->add_meta_data('ttn_booking_club_preference', $booking['club_preference'] ?? 'own-clubs');
+        $item->add_meta_data('ttn_booking_member_free_hours', $booking['member_free_hours'] ?? 0);
     }
 }
 add_action('woocommerce_checkout_create_order_line_item', 'ttn_booking_store_order_line_data', 10, 4);
@@ -951,11 +1020,15 @@ function ttn_booking_start_woocommerce_checkout() {
     $time = sanitize_text_field(wp_unslash($_REQUEST['time'] ?? ''));
     $duration = max(1, min(8, intval($_REQUEST['duration'] ?? 0)));
     $players = max(1, min(4, intval($_REQUEST['players'] ?? 0)));
+    $club_preference = sanitize_key(wp_unslash($_REQUEST['club_preference'] ?? 'own-clubs'));
+    $club_preference = in_array($club_preference, array('own-clubs', 'rental-clubs'), true) ? $club_preference : 'own-clubs';
 
     if (!ttn_booking_get_bay_config($bay) || !$date || !$time) {
         wp_safe_redirect(add_query_arg('booking_error', 'invalid-selection', home_url('/book-a-bay/')));
         exit;
     }
+
+    $member_free_hours = ttn_booking_get_member_free_hours(get_current_user_id(), $date, $time, $duration);
 
     $checkout_url = ttn_booking_add_to_cart_and_redirect($bay, array(
         'bay' => $bay,
@@ -963,6 +1036,8 @@ function ttn_booking_start_woocommerce_checkout() {
         'time' => $time,
         'duration' => $duration,
         'players' => $players,
+        'club_preference' => $club_preference,
+        'member_free_hours' => $member_free_hours,
     ));
 
     if (!$checkout_url) {
@@ -999,6 +1074,8 @@ function ttn_booking_process_wc_order($order_id) {
         $time = $item->get_meta('ttn_booking_time');
         $duration = max(1, min(8, intval($item->get_meta('ttn_booking_duration'))));
         $players = max(1, min(4, intval($item->get_meta('ttn_booking_players'))));
+        $club_preference = $item->get_meta('ttn_booking_club_preference') ?: 'own-clubs';
+        $member_free_hours = max(0, min($duration, intval($item->get_meta('ttn_booking_member_free_hours'))));
 
         if (!$bay || !$date || !$time || !ttn_booking_get_bay_config($bay)) {
             continue;
@@ -1011,7 +1088,7 @@ function ttn_booking_process_wc_order($order_id) {
             continue;
         }
 
-        $total_price = $duration * ttn_booking_get_hourly_price($bay);
+        $total_price = ($duration - $member_free_hours) * ttn_booking_get_hourly_price($bay);
         $parent_booking_id = 0;
         for ($index = 0; $index < $duration; $index++) {
             $slot = $time_slots[$start_index + $index];
@@ -1034,6 +1111,9 @@ function ttn_booking_process_wc_order($order_id) {
                 'time' => $slot['label'],
                 'duration' => $duration,
                 'players' => $players,
+                'club_preference' => $club_preference,
+                'member_free_hours' => $member_free_hours,
+                'member_booking' => function_exists('golf_simulator_theme_get_user_membership_record') && $user_id && ($membership = golf_simulator_theme_get_user_membership_record($user_id)) && $membership->status === 'active' ? '1' : '0',
                 'total_price' => $total_price,
                 'payment_status' => 'Paid',
                 'parent_id' => $index > 0 ? $parent_booking_id : null,
@@ -1055,6 +1135,7 @@ function ttn_booking_process_wc_order($order_id) {
                     'duration' => $duration,
                     'players' => $players,
                     'total_price' => $total_price,
+                    'member_free_hours' => $member_free_hours,
                 );
             }
         }
@@ -1192,6 +1273,10 @@ function ttn_booking_shortcode() {
 
     // Get booking records using the centralized function
     $booking_records = ttn_booking_get_booking_records();
+    $current_member = is_user_logged_in() && function_exists('golf_simulator_theme_get_user_membership_record')
+        ? golf_simulator_theme_get_user_membership_record(get_current_user_id())
+        : null;
+    $has_active_membership = $current_member && ($current_member->status ?? '') === 'active';
 
     ob_start();
     ?>
@@ -1312,6 +1397,22 @@ function ttn_booking_shortcode() {
             </div>
         </div>
 
+        <?php if ($has_active_membership) : ?>
+        <div class="booking-section" id="ttn-club-section" hidden>
+            <h3>Club Preference</h3>
+            <div class="player-selector" id="ttn-club-selector">
+                <label class="player-pill">
+                    <input type="radio" name="club_preference" value="own-clubs" />
+                    <span>Bring My Own Clubs</span>
+                </label>
+                <label class="player-pill">
+                    <input type="radio" name="club_preference" value="rental-clubs" />
+                    <span>Use Club Rental</span>
+                </label>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <div class="booking-section" id="ttn-time-section" hidden>
             <h3>Select Start Time</h3>
             <div class="time-slots" id="ttn-time-slots">
@@ -1339,6 +1440,7 @@ function ttn_booking_shortcode() {
         const dateSection = document.getElementById('ttn-date-section');
         const durationSection = document.getElementById('ttn-duration-section');
         const playersSection = document.getElementById('ttn-players-section');
+        const clubSection = document.getElementById('ttn-club-section');
         const timeSection = document.getElementById('ttn-time-section');
         const dateField = document.getElementById('ttn-date');
         const durationSelector = document.getElementById('ttn-duration-selector');
@@ -1358,12 +1460,14 @@ function ttn_booking_shortcode() {
             const hasDate = Boolean(dateField.value);
             const hasDuration = Boolean(document.querySelector('input[name="duration"]:checked'));
             const hasPlayers = Boolean(document.querySelector('input[name="players"]:checked'));
+            const hasClubPreference = !clubSection || Boolean(document.querySelector('input[name="club_preference"]:checked'));
 
             baySection.hidden = !hasType;
             dateSection.hidden = !hasBay;
             durationSection.hidden = !hasBay || !hasDate;
             playersSection.hidden = !hasBay || !hasDate || !hasDuration;
-            timeSection.hidden = !hasBay || !hasDate || !hasDuration || !hasPlayers;
+            if (clubSection) clubSection.hidden = !hasPlayers;
+            timeSection.hidden = !hasBay || !hasDate || !hasDuration || !hasPlayers || !hasClubPreference;
             summary.hidden = !hasPlayers;
         }
 
@@ -1650,6 +1754,13 @@ function ttn_booking_shortcode() {
             });
         });
 
+        document.querySelectorAll('input[name="club_preference"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                updateWorkflowVisibility();
+                updateTimeSlots();
+            });
+        });
+
         dateField.addEventListener('click', function() {
             if (typeof this.showPicker === 'function') {
                 try {
@@ -1683,6 +1794,8 @@ function ttn_booking_shortcode() {
             checkoutUrl.searchParams.set('time', selectedTime);
             checkoutUrl.searchParams.set('duration', document.querySelector('input[name="duration"]:checked').value);
             checkoutUrl.searchParams.set('players', document.querySelector('input[name="players"]:checked').value);
+            const clubPreference = document.querySelector('input[name="club_preference"]:checked');
+            if (clubPreference) checkoutUrl.searchParams.set('club_preference', clubPreference.value);
             window.location.href = checkoutUrl.toString();
         });
 
@@ -2148,6 +2261,8 @@ function ttn_render_booking_dashboard() {
             'bay' => ttn_get_bay_display_name($stored_bay),
             'date' => get_post_meta($p->ID, 'ttn_booking_date', true),
             'time' => get_post_meta($p->ID, 'ttn_booking_time', true),
+            'club_preference' => get_post_meta($p->ID, 'ttn_booking_club_preference', true),
+            'member_booking' => get_post_meta($p->ID, 'ttn_booking_member_booking', true) === '1',
             'status' => get_post_meta($p->ID, 'ttn_booking_status', true) ?: 'confirmed',
             'updated_at' => get_post_meta($p->ID, 'ttn_booking_updated_at', true) ?: '',
         );
@@ -2221,6 +2336,7 @@ function ttn_render_booking_dashboard() {
                     <th>Bay</th>
                     <th>Date</th>
                     <th>Time</th>
+                    <th>Member / Clubs</th>
                     <th>Status</th>
                     <th>Updated / Cancelled</th>
                     <th>Actions</th>
@@ -2229,7 +2345,7 @@ function ttn_render_booking_dashboard() {
             <tbody>
                 <?php if (!empty($all_bookings_admin)) : ?>
                     <?php foreach ($all_bookings_admin as $b_admin) : ?>
-                        <tr>
+                        <tr<?php echo $b_admin['member_booking'] ? ' style="background: #e8f5e9;"' : ''; ?>>
                             <td><strong><?php echo esc_html($b_admin['reference']); ?></strong></td>
                             <td><?php echo esc_html($b_admin['name']); ?></td>
                             <td><?php echo esc_html($b_admin['email']); ?></td>
@@ -2237,6 +2353,14 @@ function ttn_render_booking_dashboard() {
                             <td><?php echo esc_html($b_admin['bay']); ?></td>
                             <td><?php echo esc_html($b_admin['date']); ?></td>
                             <td><?php echo esc_html($b_admin['time']); ?></td>
+                            <td>
+                                <?php if ($b_admin['member_booking']) : ?>
+                                    <strong style="color: #007017;">Member</strong><br>
+                                    <small><?php echo esc_html($b_admin['club_preference'] === 'rental-clubs' ? 'Club rental requested' : 'Bringing own clubs'); ?></small>
+                                <?php else : ?>
+                                    <span>Guest</span>
+                                <?php endif; ?>
+                            </td>
                             <td>
                                 <?php if ($b_admin['status'] === 'cancelled') : ?>
                                     <span style="color: #d63638; font-weight: 700;">Cancelled</span>
@@ -2270,7 +2394,7 @@ function ttn_render_booking_dashboard() {
                     <?php endforeach; ?>
                 <?php else : ?>
                     <tr>
-                        <td colspan="10">No bookings found.</td>
+                        <td colspan="11">No bookings found.</td>
                     </tr>
                 <?php endif; ?>
             </tbody>

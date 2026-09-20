@@ -273,9 +273,11 @@ function golf_simulator_theme_sync_membership_products() {
 add_action('init', 'golf_simulator_theme_sync_membership_products', 20);
 
 function golf_simulator_theme_add_membership_to_cart_and_redirect($package_name, $is_upgrade = false, $custom_price = null) {
-    if (!class_exists('WC_Cart') || !function_exists('wc_get_checkout_url') || !function_exists('WC')) {
+    if (!class_exists('WC_Cart') || !function_exists('wc_get_checkout_url') || !function_exists('WC') || !function_exists('wc_load_cart')) {
         return false;
     }
+
+    wc_load_cart();
 
     $wc = WC();
     if (!$wc || !isset($wc->cart)) {
