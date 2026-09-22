@@ -54,8 +54,14 @@ function ttn_booking_get_account_login_url() {
 }
 
 function ttn_booking_get_account_management_cta($customer_email = '', $user_id = 0) {
-    if ($user_id && is_user_logged_in() && (int) get_current_user_id() === (int) $user_id) {
-        return 'Manage your booking';
+    // Only treat as "their own account" if the logged-in user's email actually matches
+    // the booking's customer email. Passing get_current_user_id() blindly (e.g. from an
+    // admin resending a guest's email) previously made this always true for any logged-in user.
+    if ($customer_email && is_user_logged_in()) {
+        $current_user = wp_get_current_user();
+        if ($current_user && strcasecmp($current_user->user_email, $customer_email) === 0) {
+            return 'Manage your booking';
+        }
     }
 
     if ($customer_email && is_email($customer_email) && email_exists($customer_email)) {
@@ -154,7 +160,9 @@ function ttn_booking_get_logo_url() {
 function ttn_booking_render_email($title, $intro, $rows, $account_url = '', $use_customer_template = true, $customer_email = '') {
     $customer_email = $customer_email ?: '';
     $account_url = $account_url ?: ttn_booking_get_account_management_url($customer_email);
-    $cta_text = ttn_booking_get_account_management_cta($customer_email, get_current_user_id());
+    $cta_text = ttn_booking_get_account_management_cta($customer_email);
+    $is_guest_email = $customer_email && is_email($customer_email) && !email_exists($customer_email);
+    $guest_benefits_html = $is_guest_email ? ttn_booking_get_guest_benefits_html() : '';
 
     if (function_exists('golf_simulator_theme_render_email_template')) {
         $details_table = '<table style="width:100%;border-collapse:collapse;margin:0 0 22px;font-size:15px;color:#4b5563;">';
@@ -163,7 +171,7 @@ function ttn_booking_render_email($title, $intro, $rows, $account_url = '', $use
         }
         $details_table .= '</table>';
 
-        $body_html = '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">' . esc_html($intro) . '</p>' . $details_table;
+        $body_html = '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">' . esc_html($intro) . '</p>' . $details_table . $guest_benefits_html;
 
         $message = golf_simulator_theme_render_email_template(
             'Reservation Confirmation',
@@ -200,7 +208,7 @@ function ttn_booking_render_email($title, $intro, $rows, $account_url = '', $use
     foreach ($rows as $label => $value) {
         $body_html .= '<tr><td style="padding:6px 0;"><strong>' . esc_html($label) . '</strong></td><td style="padding:6px 0;text-align:right;">' . esc_html($value) . '</td></tr>';
     }
-    $body_html .= '</table>' . $cta_html
+    $body_html .= '</table>' . $guest_benefits_html . $cta_html
         . '<div style="margin:28px 0 0;padding:18px;background:#f3f4f6;border-radius:10px;color:#4b5563;font-size:14px;line-height:1.7;">'
         . '<strong style="color:#111827;">Tee Time Nexus</strong><br>'
         . '<a href="' . esc_url($map_url) . '" target="_blank" rel="noopener" style="color:#1769aa;text-decoration:underline;">2785 Charlotte Hwy, Suites 11 &amp; 12<br>Mooresville, NC 28117</a><br>'
@@ -228,6 +236,17 @@ function ttn_booking_get_customer_email($title, $intro, $rows, $account_url = ''
     return $email;
 }
 
+function ttn_booking_get_guest_benefits_html() {
+    return '<div style="margin:0 0 22px;padding:16px 18px;background:#f0f9e8;border:1px solid #cdeba3;border-radius:10px;">'
+        . '<strong style="display:block;margin-bottom:8px;color:#3f6212;font-size:14px;">Create a free account to unlock:</strong>'
+        . '<ul style="margin:0;padding-left:20px;color:#4b5563;font-size:14px;line-height:1.7;">'
+        . '<li>Modify or reschedule this booking online anytime, without calling support</li>'
+        . '<li>Your complete booking history in one place</li>'
+        . '<li>Member perks and discounted rates</li>'
+        . '<li>Faster checkout on future reservations</li>'
+        . '</ul></div>';
+}
+
 function ttn_booking_email_template_page() {
     if (!ttn_booking_can_manage()) {
         wp_die('Unauthorized');
@@ -242,11 +261,53 @@ function ttn_booking_email_template_page() {
         echo '<div class="notice notice-success is-dismissible"><p>Booking email template saved.</p></div>';
     }
 
+    if (isset($_POST['ttn_send_test_email_nonce']) && wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['ttn_send_test_email_nonce'])), 'ttn_send_test_email')) {
+        $test_email = sanitize_email(wp_unslash($_POST['ttn_test_email_address'] ?? ''));
+
+        if (!is_email($test_email)) {
+            echo '<div class="notice notice-error is-dismissible"><p>Please enter a valid email address.</p></div>';
+        } else {
+            $sample = ttn_booking_get_customer_email(
+                'Booking Confirmed',
+                'Hi there, this is a sample of the confirmation email your customers receive.',
+                array(
+                    'Booking reference' => 'TTN-000000',
+                    'Bay' => 'Apex',
+                    'Date' => date('Y-m-d', strtotime('+3 days')),
+                    'Time' => '2:00 PM - 3:00 PM',
+                    'Duration' => '1 hour',
+                    'Players' => '2',
+                    'Amount paid' => '$50.00',
+                    'Payment status' => 'Paid',
+                ),
+                '',
+                $test_email
+            );
+
+            $sent = ttn_booking_send_mail($test_email, '[TEST] ' . $sample['subject'], $sample['message']);
+
+            echo $sent
+                ? '<div class="notice notice-success is-dismissible"><p>Test email sent to ' . esc_html($test_email) . '.</p></div>'
+                : '<div class="notice notice-error is-dismissible"><p>Failed to send test email. Check your site\'s mail/SMTP configuration.</p></div>';
+        }
+    }
+
     $subject = get_option('ttn_booking_email_subject', $default_subject);
     $body = get_option('ttn_booking_email_body', $default_body);
     ?>
     <div class="wrap">
         <h1>Booking Email Template</h1>
+
+        <div style="background: #f8f9fa; padding: 20px; margin: 20px 0; border-radius: 5px; max-width: 500px;">
+            <h2>Send Test Email</h2>
+            <p>Send a sample booking confirmation (using the live template, including the guest sign-up benefits block) to any address.</p>
+            <form method="post">
+                <?php wp_nonce_field('ttn_send_test_email', 'ttn_send_test_email_nonce'); ?>
+                <input type="email" name="ttn_test_email_address" placeholder="name@example.com" class="regular-text" required>
+                <button type="submit" class="button button-primary">Send Test Email</button>
+            </form>
+        </div>
+
         <p>This template controls customer booking emails. Use these placeholders: <code>{{title}}</code>, <code>{{intro}}</code>, <code>{{booking_details}}</code>, and <code>{{account_url}}</code>.</p>
         <form method="post">
             <?php wp_nonce_field('ttn_booking_email_template', 'ttn_booking_email_template_nonce'); ?>
@@ -1379,6 +1440,19 @@ function ttn_booking_shortcode() {
 
         <p class="booking-note">Select your bay type, choose a bay, pick your date and time, then proceed to payment.</p>
 
+        <?php if (!is_user_logged_in()) : ?>
+            <div class="guest-signup-banner" style="margin: 0 0 24px; padding: 16px 20px; background: rgba(161, 224, 76, 0.08); border: 1px solid rgba(161, 224, 76, 0.3); border-radius: 12px;">
+                <strong style="color: var(--primary); display: block; margin-bottom: 8px; font-size: 1rem;">Booking as a guest? Create a free account first &mdash; it only takes a minute.</strong>
+                <ul style="margin: 0 0 12px; padding-left: 20px; color: #ffffff; font-size: 0.9rem; line-height: 1.7;">
+                    <li>Modify or reschedule your booking online anytime, without calling support</li>
+                    <li>See your complete booking history in one place</li>
+                    <li>Unlock member perks and discounted rates</li>
+                    <li>Faster checkout on future reservations</li>
+                </ul>
+                <a href="<?php echo esc_url(golf_simulator_theme_get_login_url(home_url('/my-account/'), 'register')); ?>" class="btn btn-small-white">Create Free Account</a>
+            </div>
+        <?php endif; ?>
+
         <div class="booking-section">
             <h3>Select Bay Type</h3>
             <div class="bay-type-selector" id="ttn-bay-type-selector">
@@ -2107,6 +2181,11 @@ function ttn_render_booking_dashboard() {
         } elseif ($action === 'send_reminder') {
             ttn_send_booking_reminder($booking_id);
             echo '<div class="notice notice-success is-dismissible"><p>Reminder email sent to customer.</p></div>';
+        } elseif ($action === 'resend_confirmation') {
+            $resent = ttn_resend_booking_confirmation($booking_id);
+            echo $resent
+                ? '<div class="notice notice-success is-dismissible"><p>Confirmation email resent to customer.</p></div>'
+                : '<div class="notice notice-error is-dismissible"><p>Could not resend confirmation email (missing customer email or booking data).</p></div>';
         }
     }
 
@@ -2336,11 +2415,13 @@ function ttn_render_booking_dashboard() {
                                 $b_id = $b_admin['ID'];
                                 $edit_url = wp_nonce_url(admin_url('admin.php?page=ttn-bookings-dashboard&edit=' . $b_id), 'ttn_booking_action', 'nonce');
                                 $reminder_url = wp_nonce_url(admin_url('admin.php?page=ttn-bookings-dashboard&action=send_reminder&booking_id=' . $b_id), 'ttn_booking_action', 'nonce');
+                                $resend_url = wp_nonce_url(admin_url('admin.php?page=ttn-bookings-dashboard&action=resend_confirmation&booking_id=' . $b_id), 'ttn_booking_action', 'nonce');
                                 $delete_url = wp_nonce_url(admin_url('admin.php?page=ttn-bookings-dashboard&action=delete&booking_id=' . $b_id), 'ttn_booking_action', 'nonce');
                                 ?>
                                 <?php if ($b_admin['status'] !== 'cancelled') : ?>
                                     <a href="<?php echo esc_url($edit_url); ?>" class="button button-small">Edit</a>
                                     <a href="<?php echo esc_url($reminder_url); ?>" class="button button-small">Send Reminder</a>
+                                    <a href="<?php echo esc_url($resend_url); ?>" class="button button-small">Resend Confirmation</a>
                                 <?php endif; ?>
                                 <a href="<?php echo esc_url($delete_url); ?>" class="button button-small button-link-delete" onclick="return confirm('Are you sure you want to permanently delete this record?');">Delete</a>
                             </td>
@@ -2377,6 +2458,42 @@ function ttn_send_booking_reminder($booking_id) {
     );
 
     ttn_booking_send_mail($email, $customer_email['subject'], $customer_email['message']);
+}
+
+function ttn_resend_booking_confirmation($booking_id) {
+    $name = get_post_meta($booking_id, 'ttn_booking_name', true);
+    $email = get_post_meta($booking_id, 'ttn_booking_email', true);
+
+    if (!$email || !is_email($email)) {
+        return false;
+    }
+
+    $bay = get_post_meta($booking_id, 'ttn_booking_bay', true);
+    $date = get_post_meta($booking_id, 'ttn_booking_date', true);
+    $time = get_post_meta($booking_id, 'ttn_booking_time', true);
+    $duration = intval(get_post_meta($booking_id, 'ttn_booking_duration', true) ?: 1);
+    $players = intval(get_post_meta($booking_id, 'ttn_booking_players', true) ?: 1);
+    $total_price = get_post_meta($booking_id, 'ttn_booking_total_price', true);
+    $payment_status = get_post_meta($booking_id, 'ttn_booking_payment_status', true) ?: 'Confirmed';
+
+    $customer_email = ttn_booking_get_customer_email(
+        'Booking Confirmed',
+        'Hi ' . $name . ', here is a copy of your reservation confirmation.',
+        array(
+            'Booking reference' => 'TTN-' . str_pad((string) $booking_id, 6, '0', STR_PAD_LEFT),
+            'Bay' => ttn_get_bay_display_name($bay),
+            'Date' => $date,
+            'Time' => $time,
+            'Duration' => $duration . ($duration === 1 ? ' hour' : ' hours'),
+            'Players' => (string) $players,
+            'Amount paid' => $total_price !== '' ? '$' . number_format((float) $total_price, 2) : 'N/A',
+            'Payment status' => $payment_status,
+        ),
+        ttn_booking_get_account_management_url($email, home_url('/my-account/')),
+        $email
+    );
+
+    return ttn_booking_send_mail($email, $customer_email['subject'], $customer_email['message']);
 }
 
 function ttn_booking_refund_woocommerce_partial($booking_id, $refund_amount) {
