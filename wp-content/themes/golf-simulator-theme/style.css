@@ -1611,3 +1611,10 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     .hero-slider,
     .hero-slide { min-height: 560px; }
 }
+
+/* WooCommerce Checkout block: the theme's global light body text color is unreadable
+   inside the block's white input fields, so floating/select labels need a dark override. */
+.wc-block-components-text-input label,
+.wc-blocks-components-select__label {
+    color: #1a1a1a !important;
+}
