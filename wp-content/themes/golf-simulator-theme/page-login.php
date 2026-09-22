@@ -38,7 +38,7 @@ get_header();
     <article class="entry-content auth-card">
         <div class="kicker">Tee Time Nexus</div>
         <h1>My Account</h1>
-        <p>Log in to manage your bookings, or create an account to book faster next time.</p>
+        <p>Log in to manage your bookings and member benefits, or create an account to save your booking history, track perks, and book faster next time.</p>
 
         <?php if ($error_message) : ?>
             <div class="notice notice-error" data-tab="<?php echo esc_attr($active_tab); ?>">

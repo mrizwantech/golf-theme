@@ -1497,6 +1497,17 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     border-color: #333333 !important;
     transform: none;
 }
+.duration-pill.disabled {
+    opacity: 0.45;
+    background: #111111 !important;
+    border: 2px solid #333333 !important;
+    cursor: not-allowed;
+    color: #666666 !important;
+    pointer-events: none;
+}
+.duration-pill.disabled span {
+    color: #666666 !important;
+}
 #ttn-proceed-to-payment {
     margin-top: 12px;
 }

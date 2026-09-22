@@ -53,6 +53,35 @@ function ttn_booking_get_account_login_url() {
     return wp_login_url($account_url);
 }
 
+function ttn_booking_get_account_management_cta($customer_email = '', $user_id = 0) {
+    if ($user_id && is_user_logged_in() && (int) get_current_user_id() === (int) $user_id) {
+        return 'Manage your booking';
+    }
+
+    if ($customer_email && is_email($customer_email) && email_exists($customer_email)) {
+        return 'Login to manage your booking';
+    }
+
+    return 'Sign up to manage your booking';
+}
+
+function ttn_booking_get_account_management_url($customer_email = '', $redirect_to = '') {
+    $account_url = $redirect_to ?: home_url('/my-account/');
+
+    if (function_exists('golf_simulator_theme_get_login_url')) {
+        $tab = ($customer_email && is_email($customer_email) && email_exists($customer_email)) ? 'login' : 'register';
+        return golf_simulator_theme_get_login_url($account_url, $tab);
+    }
+
+    $login_url = home_url('/login/');
+    $tab = ($customer_email && is_email($customer_email) && email_exists($customer_email)) ? 'login' : 'register';
+
+    return add_query_arg(array(
+        'redirect_to' => $account_url,
+        'tab' => $tab,
+    ), $login_url);
+}
+
 function ttn_booking_generate_unique_username($email) {
     if (function_exists('golf_simulator_theme_generate_unique_username')) {
         return golf_simulator_theme_generate_unique_username($email);
@@ -122,7 +151,11 @@ function ttn_booking_get_logo_url() {
     return $logo_url ? $logo_url : get_site_icon_url(96);
 }
 
-function ttn_booking_render_email($title, $intro, $rows, $account_url, $use_customer_template = true) {
+function ttn_booking_render_email($title, $intro, $rows, $account_url = '', $use_customer_template = true, $customer_email = '') {
+    $customer_email = $customer_email ?: '';
+    $account_url = $account_url ?: ttn_booking_get_account_management_url($customer_email);
+    $cta_text = ttn_booking_get_account_management_cta($customer_email, get_current_user_id());
+
     if (function_exists('golf_simulator_theme_render_email_template')) {
         $details_table = '<table style="width:100%;border-collapse:collapse;margin:0 0 22px;font-size:15px;color:#4b5563;">';
         foreach ($rows as $label => $value) {
@@ -131,13 +164,13 @@ function ttn_booking_render_email($title, $intro, $rows, $account_url, $use_cust
         $details_table .= '</table>';
 
         $body_html = '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">' . esc_html($intro) . '</p>' . $details_table;
-        
+
         $message = golf_simulator_theme_render_email_template(
             'Reservation Confirmation',
             $title,
             $body_html,
-            'View My Bookings',
-            $account_url ?: home_url('/my-account/')
+            $cta_text,
+            $account_url
         );
 
         return array(
@@ -159,7 +192,7 @@ function ttn_booking_render_email($title, $intro, $rows, $account_url, $use_cust
     $business_email = 'sales@teetimenexus.com';
 
     $cta_html = $account_url
-        ? '<p style="margin:20px 0;text-align:center;"><a href="' . esc_url($account_url) . '" style="display:inline-block;padding:13px 22px;background:#a1e04c;color:#101010;text-decoration:none;border-radius:8px;font-weight:800;">View My Bookings</a></p>'
+        ? '<p style="margin:20px 0;text-align:center;"><a href="' . esc_url($account_url) . '" style="display:inline-block;padding:13px 22px;background:#a1e04c;color:#101010;text-decoration:none;border-radius:8px;font-weight:800;">' . esc_html($cta_text) . '</a></p>'
         : '';
 
     $body_html = '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">' . esc_html($intro) . '</p>'
@@ -189,8 +222,9 @@ function ttn_booking_render_email($title, $intro, $rows, $account_url, $use_cust
     );
 }
 
-function ttn_booking_get_customer_email($title, $intro, $rows, $account_url) {
-    $email = ttn_booking_render_email($title, $intro, $rows, $account_url);
+function ttn_booking_get_customer_email($title, $intro, $rows, $account_url = '', $customer_email = '') {
+    $account_url = $account_url ?: ttn_booking_get_account_management_url($customer_email);
+    $email = ttn_booking_render_email($title, $intro, $rows, $account_url, true, $customer_email);
     return $email;
 }
 
@@ -240,7 +274,7 @@ function ttn_booking_register_cpt() {
         ),
         'public' => false,
         'show_ui' => true,
-        'show_in_menu' => 'ttn-bookings-dashboard',
+        'show_in_menu' => false,
         'menu_icon' => 'dashicons-calendar-alt',
         'supports' => array('title', 'editor'),
         'capability_type' => 'post',
@@ -394,12 +428,17 @@ function ttn_booking_get_order_payment_details($order_id) {
     }
 
     $last_four = '';
+    $card_brand = '';
     foreach ($order->get_meta_data() as $meta) {
         $meta_key = strtolower((string) $meta->key);
         $meta_value = is_scalar($meta->value) ? (string) $meta->value : '';
-        if (preg_match('/(last4|last_4|last_four|card_number)/', $meta_key) && preg_match('/(\d{4})$/', $meta_value, $matches)) {
+
+        if (!$last_four && preg_match('/(last4|last_4|last_four|card_number)/', $meta_key) && preg_match('/(\d{4})$/', $meta_value, $matches)) {
             $last_four = $matches[1];
-            break;
+        }
+
+        if (!$card_brand && preg_match('/(card_type|card_brand|brand|source_type)/', $meta_key) && $meta_value !== '') {
+            $card_brand = $meta_value;
         }
     }
 
@@ -409,6 +448,7 @@ function ttn_booking_get_order_payment_details($order_id) {
         'payment_method' => $order->get_payment_method_title(),
         'paid_at' => $order->get_date_paid() ? $order->get_date_paid()->date_i18n(get_option('date_format')) : '',
         'card_last_four' => $last_four,
+        'card_brand' => $card_brand ? ucfirst($card_brand) : '',
     );
 }
 
@@ -1157,8 +1197,9 @@ function ttn_booking_process_wc_order($order_id) {
                     'Booking Confirmed',
                     'Hi ' . $customer_name . ', your payment was received and your reservation is confirmed.',
                     $email_rows,
-                    home_url('/my-account/'),
-                    false
+                    ttn_booking_get_account_management_url($customer_email, home_url('/my-account/')),
+                    false,
+                    $customer_email
                 );
                 ttn_booking_send_mail($customer_email, $customer_message['subject'], $customer_message['message']);
             }
@@ -1485,6 +1526,66 @@ function ttn_booking_shortcode() {
             updateSelectedTimeRangeUI();
         }
 
+        function updateDurationAvailability() {
+            const bay = document.querySelector('input[name="bay"]:checked');
+            const durationInputs = document.querySelectorAll('input[name="duration"]');
+
+            if (!bay || !dateField.value) {
+                durationInputs.forEach(input => {
+                    input.disabled = false;
+                    input.closest('.duration-pill')?.classList.remove('disabled');
+                });
+                return;
+            }
+
+            const date = dateField.value;
+            const today = new Date();
+            const selectedDateObj = new Date(date + 'T00:00:00');
+            const todaysDateObj = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+            const isToday = selectedDateObj.getTime() === todaysDateObj.getTime();
+
+            const bayCanonical = (bay.value || '').toLowerCase().replace(/[\s-]+/g, '');
+            const booked = bookingRecords
+                .filter(item => {
+                    const itemBayName = (item.bay || '').toLowerCase().replace(/[\s-]+/g, '');
+                    const itemBayKey = (item.bay_key || '').toLowerCase().replace(/[\s-]+/g, '');
+                    const matchesBay = (itemBayName === bayCanonical || itemBayKey === bayCanonical || item.bay === bay.value);
+                    return matchesBay && item.date === date;
+                })
+                .map(item => item.time);
+
+            durationInputs.forEach(input => {
+                const duration = parseInt(input.value, 10);
+                let hasAvailableSlot = false;
+
+                for (let index = 0; index < timeSlots.length && !hasAvailableSlot; index++) {
+                    if (index + duration > timeSlots.length) break;
+
+                    const slotStartObj = new Date(date + 'T' + timeSlots[index].start);
+                    if (isToday && slotStartObj < today) continue;
+
+                    let fits = true;
+                    for (let i = 0; i < duration; i++) {
+                        const checkSlot = timeSlots[index + i];
+                        if (checkSlot && booked.includes(checkSlot.label)) {
+                            fits = false;
+                            break;
+                        }
+                    }
+                    if (fits) hasAvailableSlot = true;
+                }
+
+                input.disabled = !hasAvailableSlot;
+                input.closest('.duration-pill')?.classList.toggle('disabled', !hasAvailableSlot);
+
+                if (!hasAvailableSlot && input.checked) {
+                    input.checked = false;
+                }
+            });
+
+            updateDurationSelectionUI();
+        }
+
         function updateTimeSlots() {
             const bay = document.querySelector('input[name="bay"]:checked');
             const duration = document.querySelector('input[name="duration"]:checked');
@@ -1715,6 +1816,7 @@ function ttn_booking_shortcode() {
                 proceedBtn.disabled = true;
                 document.querySelectorAll('.time-slot-pill').forEach(btn => btn.classList.remove('selected'));
                 updateWorkflowVisibility();
+                updateDurationAvailability();
                 updateTimeSlots();
             });
 
@@ -1723,6 +1825,7 @@ function ttn_booking_shortcode() {
             radio.addEventListener('click', () => {
                 updateBaySelectionUI();
                 updateWorkflowVisibility();
+                updateDurationAvailability();
                 updateTimeSlots();
             });
         });
@@ -1770,6 +1873,7 @@ function ttn_booking_shortcode() {
             selectedTime = null;
             document.querySelectorAll('.time-slot-pill').forEach(btn => btn.classList.remove('selected'));
             updateWorkflowVisibility();
+            updateDurationAvailability();
             updateTimeSlots();
         });
 
@@ -1798,6 +1902,7 @@ function ttn_booking_shortcode() {
 
         updateBayTypeSelectionUI();
         updateBaySelectionUI();
+        updateDurationAvailability();
         updateDurationSelectionUI();
         updatePlayersSelectionUI();
         updateWorkflowVisibility();
@@ -1914,7 +2019,8 @@ function ttn_booking_submit() {
                 'Time' => $time,
                 'Players' => (string) $players,
             ),
-            ttn_booking_get_account_login_url()
+            ttn_booking_get_account_management_url($email, home_url('/my-account/')),
+            $email
         );
         ttn_booking_send_mail($email, $customer_email['subject'], $customer_email['message']);
     }
@@ -1967,6 +2073,15 @@ function ttn_add_admin_menu() {
         'manage_woocommerce',
         'ttn-booking-email-template',
         'ttn_booking_email_template_page'
+    );
+
+    // Raw post list, kept accessible but no longer the top-level menu's default link.
+    add_submenu_page(
+        'ttn-bookings-dashboard',
+        'All Booking Posts',
+        'All Booking Posts',
+        'manage_woocommerce',
+        'edit.php?post_type=ttn_booking'
     );
 }
 add_action('admin_menu', 'ttn_add_admin_menu');
@@ -2055,6 +2170,10 @@ function ttn_render_booking_dashboard() {
             continue; // Only show parent/main reservations
         }
         $stored_bay = get_post_meta($p->ID, 'ttn_booking_bay', true);
+        $bay_config = ttn_booking_get_bay_config($stored_bay);
+        $duration = intval(get_post_meta($p->ID, 'ttn_booking_duration', true) ?: 1);
+        $time = get_post_meta($p->ID, 'ttn_booking_time', true);
+        $start_index = array_search($time, array_column($time_slots, 'label'), true);
         $all_bookings_admin[] = array(
             'ID' => $p->ID,
             'reference' => 'TTN-' . str_pad((string) $p->ID, 6, '0', STR_PAD_LEFT),
@@ -2062,12 +2181,18 @@ function ttn_render_booking_dashboard() {
             'email' => get_post_meta($p->ID, 'ttn_booking_email', true) ?: '—',
             'phone' => get_post_meta($p->ID, 'ttn_booking_phone', true) ?: '—',
             'bay' => ttn_get_bay_display_name($stored_bay),
+            'bay_type' => $bay_config ? ucwords(str_replace('-', ' ', $bay_config['type'] ?? '')) : '—',
             'date' => get_post_meta($p->ID, 'ttn_booking_date', true),
-            'time' => get_post_meta($p->ID, 'ttn_booking_time', true),
+            'duration' => $duration,
+            'time' => $time,
+            'end_time' => $start_index !== false ? ttn_booking_get_end_time_label($time_slots, $start_index, $duration) : '',
             'club_preference' => get_post_meta($p->ID, 'ttn_booking_club_preference', true),
             'member_booking' => get_post_meta($p->ID, 'ttn_booking_member_booking', true) === '1',
             'status' => get_post_meta($p->ID, 'ttn_booking_status', true) ?: 'confirmed',
             'updated_at' => get_post_meta($p->ID, 'ttn_booking_updated_at', true) ?: '',
+            'payment_status' => get_post_meta($p->ID, 'ttn_booking_payment_status', true) ?: '—',
+            'total_price' => get_post_meta($p->ID, 'ttn_booking_total_price', true),
+            'payment' => ttn_booking_get_order_payment_details(get_post_meta($p->ID, 'ttn_booking_order_id', true)),
         );
     }
     ?>
@@ -2137,9 +2262,13 @@ function ttn_render_booking_dashboard() {
                     <th>Email</th>
                     <th>Phone</th>
                     <th>Bay</th>
+                    <th>Bay Type</th>
                     <th>Date</th>
+                    <th>Duration</th>
                     <th>Time</th>
                     <th>Member / Clubs</th>
+                    <th>Payment Status</th>
+                    <th>Card</th>
                     <th>Status</th>
                     <th>Updated / Cancelled</th>
                     <th>Actions</th>
@@ -2154,14 +2283,36 @@ function ttn_render_booking_dashboard() {
                             <td><?php echo esc_html($b_admin['email']); ?></td>
                             <td><?php echo esc_html($b_admin['phone']); ?></td>
                             <td><?php echo esc_html($b_admin['bay']); ?></td>
+                            <td><?php echo esc_html($b_admin['bay_type']); ?></td>
                             <td><?php echo esc_html($b_admin['date']); ?></td>
-                            <td><?php echo esc_html($b_admin['time']); ?></td>
+                            <td><?php echo esc_html($b_admin['duration']); ?> <?php echo $b_admin['duration'] === 1 ? 'hr' : 'hrs'; ?></td>
+                            <td>
+                                <?php echo esc_html($b_admin['time']); ?>
+                                <?php if (!empty($b_admin['end_time'])) : ?>
+                                    &ndash; <?php echo esc_html($b_admin['end_time']); ?>
+                                <?php endif; ?>
+                            </td>
                             <td>
                                 <?php if ($b_admin['member_booking']) : ?>
                                     <strong style="color: #007017;">Member</strong><br>
                                     <small><?php echo esc_html($b_admin['club_preference'] === 'rental-clubs' ? 'Club rental requested' : 'Bringing own clubs'); ?></small>
                                 <?php else : ?>
                                     <span>Guest</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php echo esc_html($b_admin['payment_status']); ?>
+                                <?php if ($b_admin['total_price'] !== '' && $b_admin['total_price'] !== false) : ?>
+                                    <br><small>$<?php echo esc_html(number_format((float) $b_admin['total_price'], 2)); ?></small>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php if (!empty($b_admin['payment']['card_last_four'])) : ?>
+                                    <?php echo esc_html($b_admin['payment']['card_brand'] ?: 'Card'); ?> &bull;&bull;&bull;&bull; <?php echo esc_html($b_admin['payment']['card_last_four']); ?>
+                                <?php elseif (!empty($b_admin['payment']['payment_method'])) : ?>
+                                    <?php echo esc_html($b_admin['payment']['payment_method']); ?>
+                                <?php else : ?>
+                                    <span>—</span>
                                 <?php endif; ?>
                             </td>
                             <td>
@@ -2197,7 +2348,7 @@ function ttn_render_booking_dashboard() {
                     <?php endforeach; ?>
                 <?php else : ?>
                     <tr>
-                        <td colspan="11">No bookings found.</td>
+                        <td colspan="14">No bookings found.</td>
                     </tr>
                 <?php endif; ?>
             </tbody>
@@ -2221,7 +2372,8 @@ function ttn_send_booking_reminder($booking_id) {
             'Date' => $date,
             'Time' => $time,
         ),
-        ttn_booking_get_account_login_url()
+        ttn_booking_get_account_management_url($email, home_url('/my-account/')),
+        $email
     );
 
     ttn_booking_send_mail($email, $customer_email['subject'], $customer_email['message']);
@@ -2393,8 +2545,9 @@ function ttn_apply_booking_schedule_update($booking_id, $data) {
         'Reservation updated',
         'Hi ' . $name . ', your reservation has been updated successfully.' . ($difference < 0 ? ' ' . $refund_note : ''),
         $email_rows,
-        home_url('/my-account/'),
-        false
+        ttn_booking_get_account_management_url($email, home_url('/my-account/')),
+        false,
+        $email
     );
     ttn_booking_send_mail($email, $customer_email['subject'], $customer_email['message']);
 
