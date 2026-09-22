@@ -356,6 +356,55 @@ function ttn_booking_get_secure_upload_dir() {
 }
 
 /**
+ * Deletes ID/signature uploads that were never attached to a paid booking (e.g. the
+ * customer uploaded/signed but abandoned checkout). Only removes files older than 48
+ * hours so an in-progress checkout is never touched.
+ */
+function ttn_booking_cleanup_orphaned_secure_documents() {
+    global $wpdb;
+
+    $secure_dir = ttn_booking_get_secure_upload_dir();
+    $files = glob(trailingslashit($secure_dir) . '*');
+    if (!$files) {
+        return;
+    }
+
+    $referenced = $wpdb->get_col(
+        "SELECT DISTINCT meta_value FROM {$wpdb->postmeta}
+         WHERE meta_key IN ('ttn_booking_id_document_file', 'ttn_booking_signature_file')
+         AND meta_value != ''"
+    );
+    $referenced = array_flip($referenced);
+    $cutoff = time() - (48 * HOUR_IN_SECONDS);
+
+    foreach ($files as $path) {
+        $basename = basename($path);
+        if (in_array($basename, array('.htaccess', 'index.php'), true)) {
+            continue;
+        }
+        if (isset($referenced[$basename])) {
+            continue;
+        }
+        if (filemtime($path) > $cutoff) {
+            continue; // Still within the grace period; checkout may still be in progress.
+        }
+        @unlink($path);
+    }
+}
+add_action('ttn_booking_cleanup_orphaned_documents_cron', 'ttn_booking_cleanup_orphaned_secure_documents');
+
+function ttn_booking_schedule_document_cleanup() {
+    if (!wp_next_scheduled('ttn_booking_cleanup_orphaned_documents_cron')) {
+        wp_schedule_event(time(), 'daily', 'ttn_booking_cleanup_orphaned_documents_cron');
+    }
+}
+add_action('init', 'ttn_booking_schedule_document_cleanup');
+
+register_deactivation_hook(__FILE__, function () {
+    wp_clear_scheduled_hook('ttn_booking_cleanup_orphaned_documents_cron');
+});
+
+/**
  * Validates and moves an uploaded government ID document into secure storage.
  * Returns the stored (random) filename on success, or a WP_Error on failure.
  */
@@ -1402,12 +1451,9 @@ function ttn_booking_start_woocommerce_checkout() {
         }
 
         $terms_accepted_at = current_time('mysql');
-
-        if ($current_user_id) {
-            update_user_meta($current_user_id, 'ttn_user_id_document_file', $id_document_filename);
-            update_user_meta($current_user_id, 'ttn_user_signature_file', $signature_filename);
-            update_user_meta($current_user_id, 'ttn_user_terms_accepted_at', $terms_accepted_at);
-        }
+        // Note: we intentionally do NOT save these to user meta yet — that only
+        // happens once the booking is actually paid for (see ttn_booking_process_wc_order),
+        // so someone who uploads/signs but abandons checkout isn't marked "verified".
     }
 
     $member_free_hours = ttn_booking_get_member_free_hours($current_user_id, $date, $time, $duration);
@@ -1522,6 +1568,13 @@ function ttn_booking_process_wc_order($order_id) {
                 }
                 if ($terms_accepted_at) {
                     update_post_meta($booking_id, 'ttn_booking_terms_accepted_at', $terms_accepted_at);
+                }
+
+                // Only now that payment is confirmed do we mark this user as "verified on file".
+                if ($user_id && $id_document && $signature && $terms_accepted_at) {
+                    update_user_meta($user_id, 'ttn_user_id_document_file', $id_document);
+                    update_user_meta($user_id, 'ttn_user_signature_file', $signature);
+                    update_user_meta($user_id, 'ttn_user_terms_accepted_at', $terms_accepted_at);
                 }
 
                 $created_booking = true;
