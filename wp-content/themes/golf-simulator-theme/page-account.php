@@ -220,6 +220,14 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
         </section>
 
         <?php if ($booking_to_edit) : ?>
+        <?php if (function_exists('ttn_booking_is_within_self_service_window') && !ttn_booking_is_within_self_service_window($booking_to_edit['date'], $booking_to_edit['time'])) : ?>
+        <section class="booking-card" style="margin-bottom: 32px;">
+            <div class="booking-panel-head">
+                <div class="booking-panel-title">Edit Reservation</div>
+            </div>
+            <p style="color: var(--muted); line-height: 1.6;">This reservation starts in less than 24 hours, so it can no longer be modified online. Please call us at <a href="tel:+19805033288" style="color: var(--primary); font-weight: 700;">+1 (980) 503-3288</a> for help.</p>
+        </section>
+        <?php else : ?>
         <?php
         $bays = function_exists('ttn_booking_get_bays') ? ttn_booking_get_bays() : array();
         $all_booking_records = function_exists('ttn_booking_get_booking_records') ? ttn_booking_get_booking_records() : array();
@@ -554,6 +562,7 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
             </script>
         </section>
         <?php endif; ?>
+        <?php endif; ?>
 
         <section class="account-membership-panel bookings-section">
             <h2>My Bookings</h2>
@@ -590,6 +599,9 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
                             $today = strtotime(current_time('Y-m-d'));
                             $is_cancelled = ($booking['status'] ?? '') === 'cancelled';
                             $is_past = $booking_date < $today;
+                            $within_self_service_window = function_exists('ttn_booking_is_within_self_service_window')
+                                ? ttn_booking_is_within_self_service_window($booking['date'], $booking['time'])
+                                : true;
                             $price = $booking['duration'] * (function_exists('ttn_booking_get_hourly_price') ? ttn_booking_get_hourly_price($booking['bay']) : 50);
                             
                             // Links to edit and cancel using action handlers
@@ -640,11 +652,13 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
                                 </td>
                                 <td data-label="Reference"><?php echo esc_html($booking['booking_reference']); ?></td>
                                 <td data-label="Actions">
-                                    <?php if (!$is_past && !$is_cancelled) : ?>
+                                    <?php if (!$is_past && !$is_cancelled && $within_self_service_window) : ?>
                                         <a href="<?php echo esc_url($edit_url); ?>" class="btn btn-small">Edit</a>
                                         <button type="button" class="btn btn-small btn-danger btn-cancel-booking-trigger" data-id="<?php echo esc_attr($booking['ID']); ?>" data-ref="<?php echo esc_attr($booking['booking_reference']); ?>" data-bay="<?php echo esc_attr($booking['bay']); ?>" data-date="<?php echo esc_attr($booking['date']); ?>" data-time="<?php echo esc_attr($booking['time']); ?>">Cancel</button>
                                     <?php elseif ($is_cancelled) : ?>
                                         <span class="badge-past" style="background: rgba(239, 68, 68, 0.15); color: #ff5c5c; border: 1px solid rgba(239, 68, 68, 0.4);">Cancelled</span>
+                                    <?php elseif (!$is_past && !$within_self_service_window) : ?>
+                                        <small style="color: var(--muted); display: block; line-height: 1.5;">Starts within 24 hours.<br>Call <a href="tel:+19805033288" style="color: var(--primary);">+1 (980) 503-3288</a> for changes.</small>
                                     <?php else : ?>
                                         <span class="badge-past">Past</span>
                                     <?php endif; ?>

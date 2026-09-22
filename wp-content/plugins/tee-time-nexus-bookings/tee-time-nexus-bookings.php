@@ -327,6 +327,204 @@ function ttn_booking_email_template_page() {
     <?php
 }
 
+// ===== SECURE ID DOCUMENT & SIGNATURE STORAGE =====
+
+/**
+ * Directory (outside direct web access) where uploaded ID documents and signature
+ * images are stored. Protected by .htaccess (Apache) and only ever served through
+ * ttn_booking_serve_secure_document(), which is capability + nonce gated.
+ */
+function ttn_booking_get_secure_upload_dir() {
+    $upload_dir = wp_upload_dir();
+    $base_dir = trailingslashit($upload_dir['basedir']) . 'ttn-secure-documents';
+
+    if (!file_exists($base_dir)) {
+        wp_mkdir_p($base_dir);
+    }
+
+    $htaccess_path = $base_dir . '/.htaccess';
+    if (!file_exists($htaccess_path)) {
+        file_put_contents($htaccess_path, "<IfModule mod_authz_core.c>\n    Require all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\n    Deny from all\n</IfModule>\n");
+    }
+
+    $index_path = $base_dir . '/index.php';
+    if (!file_exists($index_path)) {
+        file_put_contents($index_path, "<?php\n// Silence is golden.\n");
+    }
+
+    return $base_dir;
+}
+
+/**
+ * Validates and moves an uploaded government ID document into secure storage.
+ * Returns the stored (random) filename on success, or a WP_Error on failure.
+ */
+function ttn_booking_store_uploaded_id_document($file) {
+    if (empty($file) || empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
+        return new WP_Error('ttn_id_missing', __('Please upload a photo of your government-issued ID.', 'tee-time-nexus-bookings'));
+    }
+
+    if (!empty($file['error']) && (int) $file['error'] !== UPLOAD_ERR_OK) {
+        return new WP_Error('ttn_id_upload_error', __('Your ID upload failed. Please try again.', 'tee-time-nexus-bookings'));
+    }
+
+    $max_size = 8 * MB_IN_BYTES;
+    if ((int) $file['size'] > $max_size) {
+        return new WP_Error('ttn_id_too_large', __('Your ID file must be smaller than 8MB.', 'tee-time-nexus-bookings'));
+    }
+
+    $allowed_mimes = array(
+        'jpg|jpeg' => 'image/jpeg',
+        'png' => 'image/png',
+        'pdf' => 'application/pdf',
+    );
+
+    $filetype = wp_check_filetype_and_ext($file['tmp_name'], $file['name'], $allowed_mimes);
+    if (empty($filetype['ext']) || empty($filetype['type'])) {
+        return new WP_Error('ttn_id_bad_type', __('Your ID must be a JPG, PNG, or PDF file.', 'tee-time-nexus-bookings'));
+    }
+
+    $secure_dir = ttn_booking_get_secure_upload_dir();
+    $random_name = 'id-' . bin2hex(random_bytes(16)) . '.' . $filetype['ext'];
+    $destination = trailingslashit($secure_dir) . $random_name;
+
+    if (!@move_uploaded_file($file['tmp_name'], $destination)) {
+        return new WP_Error('ttn_id_save_failed', __('We could not save your ID document. Please try again.', 'tee-time-nexus-bookings'));
+    }
+
+    @chmod($destination, 0600);
+
+    return $random_name;
+}
+
+/**
+ * Decodes and saves a base64 PNG signature (from the on-page signature pad) into
+ * secure storage. Returns the stored (random) filename on success, or a WP_Error.
+ */
+function ttn_booking_store_signature_image($data_url) {
+    if (empty($data_url) || strpos($data_url, 'data:image/png;base64,') !== 0) {
+        return new WP_Error('ttn_signature_missing', __('Please sign to accept your reservation before continuing.', 'tee-time-nexus-bookings'));
+    }
+
+    $binary = base64_decode(substr($data_url, strlen('data:image/png;base64,')), true);
+    if ($binary === false || strlen($binary) < 100) {
+        return new WP_Error('ttn_signature_invalid', __('Your signature could not be read. Please sign again.', 'tee-time-nexus-bookings'));
+    }
+
+    if (strlen($binary) > 2 * MB_IN_BYTES) {
+        return new WP_Error('ttn_signature_too_large', __('Your signature image is too large.', 'tee-time-nexus-bookings'));
+    }
+
+    $secure_dir = ttn_booking_get_secure_upload_dir();
+    $random_name = 'sig-' . bin2hex(random_bytes(16)) . '.png';
+    $destination = trailingslashit($secure_dir) . $random_name;
+
+    if (file_put_contents($destination, $binary) === false) {
+        return new WP_Error('ttn_signature_save_failed', __('We could not save your signature. Please try again.', 'tee-time-nexus-bookings'));
+    }
+
+    @chmod($destination, 0600);
+
+    return $random_name;
+}
+
+/**
+ * Streams a stored ID document or signature image to an authorized admin only.
+ * Filenames are looked up from booking post meta, never accepted from the request,
+ * and validated to stay inside the secure directory (defense against traversal).
+ */
+function ttn_booking_serve_secure_document() {
+    if (!ttn_booking_can_manage()) {
+        wp_die(__('Unauthorized', 'tee-time-nexus-bookings'));
+    }
+
+    $booking_id = intval($_GET['booking_id'] ?? 0);
+    $doc_type = sanitize_key($_GET['doc_type'] ?? '');
+    $nonce = sanitize_text_field(wp_unslash($_GET['nonce'] ?? ''));
+
+    if (!wp_verify_nonce($nonce, 'ttn_view_secure_document_' . $booking_id)) {
+        wp_die(__('Security check failed.', 'tee-time-nexus-bookings'));
+    }
+
+    $meta_key = $doc_type === 'signature' ? 'ttn_booking_signature_file' : 'ttn_booking_id_document_file';
+    $filename = get_post_meta($booking_id, $meta_key, true);
+
+    if (!$filename || strpos($filename, '/') !== false || strpos($filename, '..') !== false) {
+        wp_die(__('Document not found.', 'tee-time-nexus-bookings'));
+    }
+
+    $secure_dir = ttn_booking_get_secure_upload_dir();
+    $path = realpath(trailingslashit($secure_dir) . $filename);
+
+    if (!$path || strpos($path, realpath($secure_dir)) !== 0 || !file_exists($path)) {
+        wp_die(__('Document not found.', 'tee-time-nexus-bookings'));
+    }
+
+    $filetype = wp_check_filetype($path);
+    $mime = $filetype['type'] ?: 'application/octet-stream';
+
+    nocache_headers();
+    header('Content-Type: ' . $mime);
+    header('Content-Length: ' . filesize($path));
+    header('X-Content-Type-Options: nosniff');
+    header('Content-Disposition: inline; filename="' . basename($path) . '"');
+    readfile($path);
+    exit;
+}
+add_action('admin_post_ttn_view_secure_document', 'ttn_booking_serve_secure_document');
+
+/**
+ * Admin-managed Terms & Conditions content shown/agreed-to during booking.
+ */
+function ttn_booking_get_terms_content() {
+    return get_option('ttn_booking_terms_content', 'By booking, you agree to arrive on time, treat the facility and equipment with care, and accept responsibility for any damage caused during your session.');
+}
+
+function ttn_booking_terms_admin_page() {
+    if (!ttn_booking_can_manage()) {
+        wp_die('Unauthorized');
+    }
+
+    if (isset($_POST['ttn_booking_terms_nonce']) && wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['ttn_booking_terms_nonce'])), 'ttn_booking_terms')) {
+        update_option('ttn_booking_terms_content', wp_kses_post(wp_unslash($_POST['ttn_booking_terms_content'] ?? '')));
+        echo '<div class="notice notice-success is-dismissible"><p>Terms &amp; Conditions saved.</p></div>';
+    }
+
+    $content = ttn_booking_get_terms_content();
+    ?>
+    <div class="wrap">
+        <h1>Terms &amp; Conditions</h1>
+        <p>This content is shown to customers during booking. They must check a box agreeing to it before they can pay.</p>
+        <form method="post">
+            <?php wp_nonce_field('ttn_booking_terms', 'ttn_booking_terms_nonce'); ?>
+            <?php
+            wp_editor($content, 'ttn_booking_terms_content', array(
+                'textarea_name' => 'ttn_booking_terms_content',
+                'media_buttons' => false,
+                'textarea_rows' => 16,
+            ));
+            ?>
+            <p><button type="submit" class="button button-primary">Save Terms &amp; Conditions</button></p>
+        </form>
+    </div>
+    <?php
+}
+
+/**
+ * Whether this logged-in user has already uploaded an ID, signed, and accepted the
+ * terms on a previous booking, so we don't need to ask again on future bookings.
+ */
+function ttn_booking_user_has_verification_on_file($user_id) {
+    if (!$user_id) {
+        return false;
+    }
+
+    return (bool) get_user_meta($user_id, 'ttn_user_id_document_file', true)
+        && (bool) get_user_meta($user_id, 'ttn_user_signature_file', true)
+        && (bool) get_user_meta($user_id, 'ttn_user_terms_accepted_at', true);
+}
+
+
 function ttn_booking_register_cpt() {
     register_post_type('ttn_booking', array(
         'labels' => array(
@@ -772,6 +970,31 @@ function ttn_booking_is_slot_in_past($date, $time_start) {
     return $slot_datetime < $now;
 }
 
+/**
+ * Hours remaining between now and a booking's scheduled start (negative if already started/past).
+ */
+function ttn_booking_hours_until_start($date, $time_label) {
+    $time_slots = ttn_booking_get_time_slots();
+    $slot_index = array_search(ttn_normalize_string($time_label), array_map('ttn_normalize_string', array_column($time_slots, 'label')), true);
+    if ($slot_index === false) {
+        return null;
+    }
+
+    $timezone = wp_timezone();
+    $start_datetime = new DateTime($date . ' ' . $time_slots[$slot_index]['start'], $timezone);
+    $now = new DateTime('now', $timezone);
+
+    return ($start_datetime->getTimestamp() - $now->getTimestamp()) / HOUR_IN_SECONDS;
+}
+
+/**
+ * Whether a booking is still eligible for self-service cancellation/modification (24hr cutoff).
+ */
+function ttn_booking_is_within_self_service_window($date, $time_label) {
+    $hours_until = ttn_booking_hours_until_start($date, $time_label);
+    return $hours_until !== null && $hours_until >= 24;
+}
+
 function ttn_booking_get_consecutive_slots($start_index, $duration, $time_slots) {
     // Get consecutive time slots starting from start_index
     $slots = array();
@@ -985,6 +1208,9 @@ function ttn_booking_add_to_cart_and_redirect($bay_name, $booking_data = array()
                 'players' => isset($booking_data['players']) ? max(1, min(4, intval($booking_data['players']))) : 1,
                 'club_preference' => isset($booking_data['club_preference']) ? sanitize_key($booking_data['club_preference']) : 'own-clubs',
                 'member_free_hours' => isset($booking_data['member_free_hours']) ? max(0, intval($booking_data['member_free_hours'])) : 0,
+                'id_document' => isset($booking_data['id_document']) ? sanitize_file_name($booking_data['id_document']) : '',
+                'signature' => isset($booking_data['signature']) ? sanitize_file_name($booking_data['signature']) : '',
+                'terms_accepted_at' => isset($booking_data['terms_accepted_at']) ? $booking_data['terms_accepted_at'] : '',
             );
         }
 
@@ -1103,6 +1329,16 @@ function ttn_booking_store_order_line_data($item, $cart_item_key, $values, $orde
         $item->add_meta_data('ttn_booking_players', $booking['players']);
         $item->add_meta_data('ttn_booking_club_preference', $booking['club_preference'] ?? 'own-clubs');
         $item->add_meta_data('ttn_booking_member_free_hours', $booking['member_free_hours'] ?? 0);
+        // Underscore-prefixed so WooCommerce hides these from the customer-facing order view.
+        if (!empty($booking['id_document'])) {
+            $item->add_meta_data('_ttn_booking_id_document', $booking['id_document']);
+        }
+        if (!empty($booking['signature'])) {
+            $item->add_meta_data('_ttn_booking_signature', $booking['signature']);
+        }
+        if (!empty($booking['terms_accepted_at'])) {
+            $item->add_meta_data('_ttn_booking_terms_accepted_at', $booking['terms_accepted_at']);
+        }
     }
 }
 add_action('woocommerce_checkout_create_order_line_item', 'ttn_booking_store_order_line_data', 10, 4);
@@ -1122,11 +1358,59 @@ function ttn_booking_start_woocommerce_checkout() {
     $club_preference = in_array($club_preference, array('own-clubs', 'rental-clubs'), true) ? $club_preference : 'own-clubs';
 
     if (!ttn_booking_get_bay_config($bay) || !$date || !$time) {
-        wp_safe_redirect(add_query_arg('booking_error', 'invalid-selection', home_url('/book-a-bay/')));
+        wp_safe_redirect(add_query_arg(array(
+            'booking_error' => 'invalid-selection',
+            'booking_error_message' => rawurlencode(__('Your bay, date, or time selection was invalid or expired. Please choose your options again.', 'tee-time-nexus-bookings')),
+        ), home_url('/book-a-bay/')));
         exit;
     }
 
-    $member_free_hours = ttn_booking_get_member_free_hours(get_current_user_id(), $date, $time, $duration);
+    $current_user_id = get_current_user_id();
+    $reuse_verification_on_file = !empty($_POST['ttn_use_verification_on_file'])
+        && ttn_booking_user_has_verification_on_file($current_user_id);
+
+    if ($reuse_verification_on_file) {
+        // Returning, already-verified customer: reuse the ID/signature/terms already on file.
+        $id_document_filename = get_user_meta($current_user_id, 'ttn_user_id_document_file', true);
+        $signature_filename = get_user_meta($current_user_id, 'ttn_user_signature_file', true);
+        $terms_accepted_at = get_user_meta($current_user_id, 'ttn_user_terms_accepted_at', true);
+    } else {
+        if (empty($_POST['ttn_terms_accepted'])) {
+            wp_safe_redirect(add_query_arg(array(
+                'booking_error' => 'terms-required',
+                'booking_error_message' => rawurlencode(__('Please check the box to agree to the Terms and Conditions before continuing.', 'tee-time-nexus-bookings')),
+            ), home_url('/book-a-bay/')));
+            exit;
+        }
+
+        $id_document_filename = ttn_booking_store_uploaded_id_document($_FILES['ttn_id_document'] ?? null);
+        if (is_wp_error($id_document_filename)) {
+            wp_safe_redirect(add_query_arg(array(
+                'booking_error' => 'id-upload-failed',
+                'booking_error_message' => rawurlencode($id_document_filename->get_error_message()),
+            ), home_url('/book-a-bay/')));
+            exit;
+        }
+
+        $signature_filename = ttn_booking_store_signature_image(wp_unslash($_POST['ttn_signature_data'] ?? ''));
+        if (is_wp_error($signature_filename)) {
+            wp_safe_redirect(add_query_arg(array(
+                'booking_error' => 'signature-required',
+                'booking_error_message' => rawurlencode($signature_filename->get_error_message()),
+            ), home_url('/book-a-bay/')));
+            exit;
+        }
+
+        $terms_accepted_at = current_time('mysql');
+
+        if ($current_user_id) {
+            update_user_meta($current_user_id, 'ttn_user_id_document_file', $id_document_filename);
+            update_user_meta($current_user_id, 'ttn_user_signature_file', $signature_filename);
+            update_user_meta($current_user_id, 'ttn_user_terms_accepted_at', $terms_accepted_at);
+        }
+    }
+
+    $member_free_hours = ttn_booking_get_member_free_hours($current_user_id, $date, $time, $duration);
 
     $checkout_url = ttn_booking_add_to_cart_and_redirect($bay, array(
         'bay' => $bay,
@@ -1136,6 +1420,9 @@ function ttn_booking_start_woocommerce_checkout() {
         'players' => $players,
         'club_preference' => $club_preference,
         'member_free_hours' => $member_free_hours,
+        'id_document' => $id_document_filename,
+        'signature' => $signature_filename,
+        'terms_accepted_at' => $terms_accepted_at,
     ));
 
     if (!$checkout_url) {
@@ -1223,6 +1510,20 @@ function ttn_booking_process_wc_order($order_id) {
             if ($index === 0) {
                 $parent_booking_id = $booking_id;
                 update_post_meta($booking_id, 'ttn_booking_order_id', $order->get_id());
+
+                $id_document = $item->get_meta('_ttn_booking_id_document');
+                $signature = $item->get_meta('_ttn_booking_signature');
+                $terms_accepted_at = $item->get_meta('_ttn_booking_terms_accepted_at');
+                if ($id_document) {
+                    update_post_meta($booking_id, 'ttn_booking_id_document_file', $id_document);
+                }
+                if ($signature) {
+                    update_post_meta($booking_id, 'ttn_booking_signature_file', $signature);
+                }
+                if ($terms_accepted_at) {
+                    update_post_meta($booking_id, 'ttn_booking_terms_accepted_at', $terms_accepted_at);
+                }
+
                 $created_booking = true;
                 $confirmed_reservations[] = array(
                     'booking_id' => $booking_id,
@@ -1350,6 +1651,23 @@ function ttn_booking_shortcode() {
     $confirmed_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
     $confirmed_booking = null;
 
+    $booking_error_code = isset($_GET['booking_error']) ? sanitize_key($_GET['booking_error']) : '';
+    $booking_error_fallbacks = array(
+        'invalid-selection' => __('Your bay, date, or time selection was invalid or expired. Please choose your options again.', 'tee-time-nexus-bookings'),
+        'terms-required' => __('Please check the box to agree to the Terms and Conditions before continuing.', 'tee-time-nexus-bookings'),
+        'id-upload-failed' => __('We could not accept your ID upload. Please make sure it is a JPG, PNG, or PDF under 8MB and try again.', 'tee-time-nexus-bookings'),
+        'signature-required' => __('Please sign in the signature box to confirm your reservation before continuing.', 'tee-time-nexus-bookings'),
+    );
+    $booking_error_message = '';
+    if ($booking_error_code) {
+        $booking_error_message = isset($_GET['booking_error_message'])
+            ? sanitize_text_field(rawurldecode(wp_unslash($_GET['booking_error_message'])))
+            : '';
+        if (!$booking_error_message) {
+            $booking_error_message = $booking_error_fallbacks[$booking_error_code] ?? __('Something went wrong with your booking. Please try again.', 'tee-time-nexus-bookings');
+        }
+    }
+
     if ($confirmed && $confirmed_id) {
         $confirmed_post = get_post($confirmed_id);
         if ($confirmed_post && $confirmed_post->post_type === 'ttn_booking') {
@@ -1376,10 +1694,18 @@ function ttn_booking_shortcode() {
         ? golf_simulator_theme_get_user_membership_record(get_current_user_id())
         : null;
     $has_active_membership = $current_member && ($current_member->status ?? '') === 'active';
+    $skip_verification = is_user_logged_in() && ttn_booking_user_has_verification_on_file(get_current_user_id());
 
     ob_start();
     ?>
     <div class="booking-card">
+        <?php if ($booking_error_message) : ?>
+            <div class="booking-error-alert" style="margin: 0 0 20px; padding: 14px 18px; background: rgba(220, 38, 38, 0.1); border: 1px solid rgba(220, 38, 38, 0.4); border-radius: 12px; color: #fecaca; font-size: 0.92rem; line-height: 1.6;">
+                <strong style="display: block; margin-bottom: 4px; color: #ff8585;">We couldn't complete your booking</strong>
+                <?php echo esc_html($booking_error_message); ?>
+            </div>
+        <?php endif; ?>
+
         <?php if ($confirmed) : ?>
             <div class="booking-success-alert" id="successAlert">
                 <div class="success-icon">✓</div>
@@ -1452,6 +1778,18 @@ function ttn_booking_shortcode() {
                 <a href="<?php echo esc_url(golf_simulator_theme_get_login_url(home_url('/my-account/'), 'register')); ?>" class="btn btn-small-white">Create Free Account</a>
             </div>
         <?php endif; ?>
+
+        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data" id="ttn-checkout-form">
+            <input type="hidden" name="action" value="ttn_booking_start_woocommerce_checkout">
+            <input type="hidden" name="ttn_booking_checkout_nonce" value="<?php echo esc_attr(wp_create_nonce('ttn_booking_start_checkout')); ?>">
+            <input type="hidden" name="bay" id="ttn-hidden-bay">
+            <input type="hidden" name="date" id="ttn-hidden-date">
+            <input type="hidden" name="time" id="ttn-hidden-time">
+            <input type="hidden" name="duration" id="ttn-hidden-duration">
+            <input type="hidden" name="players" id="ttn-hidden-players">
+            <input type="hidden" name="club_preference" id="ttn-hidden-club-preference">
+            <input type="hidden" name="ttn_signature_data" id="ttn-hidden-signature">
+            <input type="hidden" name="ttn_use_verification_on_file" id="ttn-hidden-use-verification-on-file" value="<?php echo $skip_verification ? '1' : '0'; ?>">
 
         <div class="booking-section">
             <h3>Select Bay Type</h3>
@@ -1540,7 +1878,52 @@ function ttn_booking_shortcode() {
             Complete each selection to continue.
         </div>
 
-        <button class="btn btn-primary" id="ttn-proceed-to-payment" disabled>Proceed to Payment</button>
+        <div class="booking-section" id="ttn-verification-section" hidden>
+            <h3>Verify Your Reservation</h3>
+
+            <?php if ($skip_verification) : ?>
+                <div id="ttn-verification-on-file" style="margin-bottom: 12px; padding: 14px 16px; background: rgba(161, 224, 76, 0.08); border: 1px solid rgba(161, 224, 76, 0.3); border-radius: 12px; font-size: 0.9rem;">
+                    ✓ Using the ID, signature, and accepted Terms &amp; Conditions already on file for your account.
+                    <button type="button" class="btn btn-small-white" id="ttn-verification-update-toggle" style="margin-left: 8px;">Update instead</button>
+                </div>
+            <?php endif; ?>
+
+            <div id="ttn-verification-fields" <?php echo $skip_verification ? 'hidden' : ''; ?>>
+                <div style="margin-bottom: 20px;">
+                    <label for="ttn-id-document" style="display: block; margin-bottom: 8px; font-weight: 600;">Upload a photo of your government-issued ID</label>
+                    <input type="file" name="ttn_id_document" id="ttn-id-document" accept=".jpg,.jpeg,.png,.pdf" <?php echo $skip_verification ? '' : 'required'; ?>>
+                    <p style="margin: 6px 0 0; font-size: 0.8rem; color: var(--muted);">JPG, PNG, or PDF, up to 8MB. Stored securely and only viewable by our staff.</p>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; margin-bottom: 8px; font-weight: 600;">Sign to confirm your reservation</label>
+                    <canvas id="ttn-signature-pad" width="500" height="160" style="width: 100%; max-width: 500px; height: 160px; background: #ffffff; border-radius: 10px; border: 2px solid #ffffff; touch-action: none; cursor: crosshair;"></canvas>
+                    <p style="margin: 6px 0 0;">
+                        <button type="button" class="btn btn-small-white" id="ttn-signature-clear">Clear Signature</button>
+                    </p>
+                </div>
+
+                <div style="margin-bottom: 8px;">
+                    <label style="display: flex; align-items: flex-start; gap: 10px; font-size: 0.9rem; cursor: pointer;">
+                        <input type="checkbox" name="ttn_terms_accepted" id="ttn-terms-accepted" value="1" <?php echo $skip_verification ? '' : 'required'; ?> style="margin-top: 3px;">
+                        <span>I have read and agree to the <a href="#" id="ttn-terms-open" style="color: var(--primary); text-decoration: underline; font-weight: 700;">Terms and Conditions</a>.</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary" id="ttn-proceed-to-payment" disabled>Proceed to Payment</button>
+        </form>
+    </div>
+
+    <div id="ttn-terms-modal" style="display: none; position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,0.7); align-items: center; justify-content: center; padding: 20px;">
+        <div style="background: #101010; border: 1px solid var(--border-soft); border-radius: 14px; max-width: 560px; width: 100%; max-height: 80vh; overflow-y: auto; padding: 24px;">
+            <h3 style="margin-top: 0;">Terms and Conditions</h3>
+            <div style="color: #e5e7eb; font-size: 0.92rem; line-height: 1.7;"><?php echo wp_kses_post(wpautop(ttn_booking_get_terms_content())); ?></div>
+            <p style="text-align: right; margin-bottom: 0;">
+                <button type="button" class="btn btn-small-white" id="ttn-terms-close">Close</button>
+            </p>
+        </div>
     </div>
 
     <script>
@@ -1559,12 +1942,27 @@ function ttn_booking_shortcode() {
         const timeSlots_el = document.getElementById('ttn-time-slots');
         const summary = document.getElementById('ttn-selection-summary');
         const proceedBtn = document.getElementById('ttn-proceed-to-payment');
+        const verificationSection = document.getElementById('ttn-verification-section');
+        const checkoutForm = document.getElementById('ttn-checkout-form');
 
         let selectedBay = null;
         let selectedDate = null;
         let selectedTime = null;
         let selectedDuration = null;
         let selectedPlayers = null;
+        let hasSignature = false;
+
+        function hasRequiredVerification() {
+            const useOnFile = document.getElementById('ttn-hidden-use-verification-on-file');
+            if (useOnFile && useOnFile.value === '1') {
+                return true;
+            }
+            const idInput = document.getElementById('ttn-id-document');
+            const termsInput = document.getElementById('ttn-terms-accepted');
+            const hasId = Boolean(idInput && idInput.files && idInput.files.length > 0);
+            const hasTerms = Boolean(termsInput && termsInput.checked);
+            return hasId && hasTerms && hasSignature;
+        }
 
         function updateWorkflowVisibility() {
             const hasType = Boolean(document.querySelector('input[name="bay_type"]:checked'));
@@ -1781,10 +2179,11 @@ function ttn_booking_shortcode() {
             }
 
             if (selectedBay && selectedDate && duration && players && selectedTime) {
-                proceedBtn.disabled = false;
+                proceedBtn.disabled = !hasRequiredVerification();
             } else {
                 proceedBtn.disabled = true;
             }
+            if (verificationSection) verificationSection.hidden = !(selectedBay && selectedDate && duration && players && selectedTime);
         }
 
         function updateBayTypeSelectionUI() {
@@ -1961,18 +2360,133 @@ function ttn_booking_shortcode() {
         });
 
         proceedBtn.addEventListener('click', () => {
-            const checkoutUrl = new URL('<?php echo esc_url(admin_url('admin-post.php')); ?>');
-            checkoutUrl.searchParams.set('action', 'ttn_booking_start_woocommerce_checkout');
-            checkoutUrl.searchParams.set('ttn_booking_checkout_nonce', '<?php echo esc_js(wp_create_nonce('ttn_booking_start_checkout')); ?>');
-            checkoutUrl.searchParams.set('bay', selectedBay);
-            checkoutUrl.searchParams.set('date', selectedDate);
-            checkoutUrl.searchParams.set('time', selectedTime);
-            checkoutUrl.searchParams.set('duration', document.querySelector('input[name="duration"]:checked').value);
-            checkoutUrl.searchParams.set('players', document.querySelector('input[name="players"]:checked').value);
+            document.getElementById('ttn-hidden-bay').value = selectedBay || '';
+            document.getElementById('ttn-hidden-date').value = selectedDate || '';
+            document.getElementById('ttn-hidden-time').value = selectedTime || '';
+            document.getElementById('ttn-hidden-duration').value = document.querySelector('input[name="duration"]:checked')?.value || '';
+            document.getElementById('ttn-hidden-players').value = document.querySelector('input[name="players"]:checked')?.value || '';
             const clubPreference = document.querySelector('input[name="club_preference"]:checked');
-            if (clubPreference) checkoutUrl.searchParams.set('club_preference', clubPreference.value);
-            window.location.href = checkoutUrl.toString();
+            document.getElementById('ttn-hidden-club-preference').value = clubPreference ? clubPreference.value : 'own-clubs';
         });
+
+        // Signature pad
+        (function () {
+            const canvas = document.getElementById('ttn-signature-pad');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const signatureInput = document.getElementById('ttn-hidden-signature');
+            const clearBtn = document.getElementById('ttn-signature-clear');
+            let drawing = false;
+
+            ctx.lineWidth = 2;
+            ctx.lineCap = 'round';
+            ctx.strokeStyle = '#101010';
+
+            function getPos(e) {
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+                const point = e.touches ? e.touches[0] : e;
+                return { x: (point.clientX - rect.left) * scaleX, y: (point.clientY - rect.top) * scaleY };
+            }
+
+            function start(e) {
+                drawing = true;
+                hasSignature = true;
+                const pos = getPos(e);
+                ctx.beginPath();
+                ctx.moveTo(pos.x, pos.y);
+                e.preventDefault();
+            }
+
+            function move(e) {
+                if (!drawing) return;
+                const pos = getPos(e);
+                ctx.lineTo(pos.x, pos.y);
+                ctx.stroke();
+                e.preventDefault();
+            }
+
+            function end() {
+                if (!drawing) return;
+                drawing = false;
+                signatureInput.value = canvas.toDataURL('image/png');
+                updateSummary();
+            }
+
+            canvas.addEventListener('mousedown', start);
+            canvas.addEventListener('mousemove', move);
+            window.addEventListener('mouseup', end);
+            canvas.addEventListener('touchstart', start, { passive: false });
+            canvas.addEventListener('touchmove', move, { passive: false });
+            canvas.addEventListener('touchend', end);
+
+            if (clearBtn) {
+                clearBtn.addEventListener('click', () => {
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    hasSignature = false;
+                    signatureInput.value = '';
+                    updateSummary();
+                });
+            }
+
+            const idDocumentInput = document.getElementById('ttn-id-document');
+            if (idDocumentInput) {
+                idDocumentInput.addEventListener('change', () => updateSummary());
+            }
+
+            const termsCheckbox = document.getElementById('ttn-terms-accepted');
+            if (termsCheckbox) {
+                termsCheckbox.addEventListener('change', () => updateSummary());
+            }
+
+            if (checkoutForm) {
+                checkoutForm.addEventListener('submit', (e) => {
+                    const useOnFile = document.getElementById('ttn-hidden-use-verification-on-file');
+                    if (useOnFile && useOnFile.value === '1') {
+                        return;
+                    }
+                    if (!hasSignature) {
+                        e.preventDefault();
+                        alert('Please sign in the box to confirm your reservation before continuing.');
+                    }
+                });
+            }
+        })();
+
+        // Reuse-on-file toggle: lets a returning customer re-verify instead of reusing saved ID/signature.
+        (function () {
+            const toggleBtn = document.getElementById('ttn-verification-update-toggle');
+            if (!toggleBtn) return;
+
+            toggleBtn.addEventListener('click', () => {
+                document.getElementById('ttn-verification-on-file').hidden = true;
+                document.getElementById('ttn-verification-fields').hidden = false;
+                document.getElementById('ttn-hidden-use-verification-on-file').value = '0';
+                document.getElementById('ttn-id-document').setAttribute('required', 'required');
+                document.getElementById('ttn-terms-accepted').setAttribute('required', 'required');
+                updateSummary();
+            });
+        })();
+
+        // Terms & Conditions modal
+        (function () {
+            const modal = document.getElementById('ttn-terms-modal');
+            const openLink = document.getElementById('ttn-terms-open');
+            const closeBtn = document.getElementById('ttn-terms-close');
+            if (!modal || !openLink) return;
+
+            openLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                modal.style.display = 'flex';
+            });
+            if (closeBtn) {
+                closeBtn.addEventListener('click', () => { modal.style.display = 'none'; });
+            }
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) modal.style.display = 'none';
+            });
+        })();
 
         updateBayTypeSelectionUI();
         updateBaySelectionUI();
@@ -2149,6 +2663,15 @@ function ttn_add_admin_menu() {
         'ttn_booking_email_template_page'
     );
 
+    add_submenu_page(
+        'ttn-bookings-dashboard',
+        'Terms & Conditions',
+        'Terms & Conditions',
+        'manage_woocommerce',
+        'ttn-booking-terms',
+        'ttn_booking_terms_admin_page'
+    );
+
     // Raw post list, kept accessible but no longer the top-level menu's default link.
     add_submenu_page(
         'ttn-bookings-dashboard',
@@ -2272,6 +2795,9 @@ function ttn_render_booking_dashboard() {
             'payment_status' => get_post_meta($p->ID, 'ttn_booking_payment_status', true) ?: '—',
             'total_price' => get_post_meta($p->ID, 'ttn_booking_total_price', true),
             'payment' => ttn_booking_get_order_payment_details(get_post_meta($p->ID, 'ttn_booking_order_id', true)),
+            'id_document_file' => get_post_meta($p->ID, 'ttn_booking_id_document_file', true),
+            'signature_file' => get_post_meta($p->ID, 'ttn_booking_signature_file', true),
+            'terms_accepted_at' => get_post_meta($p->ID, 'ttn_booking_terms_accepted_at', true),
         );
     }
     ?>
@@ -2348,6 +2874,7 @@ function ttn_render_booking_dashboard() {
                     <th>Member / Clubs</th>
                     <th>Payment Status</th>
                     <th>Card</th>
+                    <th>Documents</th>
                     <th>Status</th>
                     <th>Updated / Cancelled</th>
                     <th>Actions</th>
@@ -2395,6 +2922,25 @@ function ttn_render_booking_dashboard() {
                                 <?php endif; ?>
                             </td>
                             <td>
+                                <?php
+                                $doc_nonce = wp_create_nonce('ttn_view_secure_document_' . $b_admin['ID']);
+                                $id_view_url = admin_url('admin-post.php?action=ttn_view_secure_document&doc_type=id&booking_id=' . $b_admin['ID'] . '&nonce=' . $doc_nonce);
+                                $sig_view_url = admin_url('admin-post.php?action=ttn_view_secure_document&doc_type=signature&booking_id=' . $b_admin['ID'] . '&nonce=' . $doc_nonce);
+                                ?>
+                                <?php if (!empty($b_admin['id_document_file'])) : ?>
+                                    <a href="<?php echo esc_url($id_view_url); ?>" class="button button-small" target="_blank" rel="noopener">View ID</a>
+                                <?php endif; ?>
+                                <?php if (!empty($b_admin['signature_file'])) : ?>
+                                    <a href="<?php echo esc_url($sig_view_url); ?>" class="button button-small" target="_blank" rel="noopener">View Signature</a>
+                                <?php endif; ?>
+                                <?php if (empty($b_admin['id_document_file']) && empty($b_admin['signature_file'])) : ?>
+                                    <span>—</span>
+                                <?php endif; ?>
+                                <?php if (!empty($b_admin['terms_accepted_at'])) : ?>
+                                    <br><small style="color: #6b7280;">T&amp;C accepted <?php echo esc_html(mysql2date('M j, Y g:i A', $b_admin['terms_accepted_at'])); ?></small>
+                                <?php endif; ?>
+                            </td>
+                            <td>
                                 <?php if ($b_admin['status'] === 'cancelled') : ?>
                                     <span style="color: #d63638; font-weight: 700;">Cancelled</span>
                                 <?php elseif ($b_admin['status'] === 'updated') : ?>
@@ -2429,7 +2975,7 @@ function ttn_render_booking_dashboard() {
                     <?php endforeach; ?>
                 <?php else : ?>
                     <tr>
-                        <td colspan="14">No bookings found.</td>
+                        <td colspan="15">No bookings found.</td>
                     </tr>
                 <?php endif; ?>
             </tbody>
@@ -2701,6 +3247,16 @@ function ttn_crud_update_user_booking($booking_id, $user_email, $booking_data) {
         return array('success' => false, 'message' => 'You do not have permission to edit this booking.');
     }
 
+    // Enforce 24-hour self-service cutoff; after that, customers must contact support.
+    $existing_date = get_post_meta($booking_id, 'ttn_booking_date', true);
+    $existing_time = get_post_meta($booking_id, 'ttn_booking_time', true);
+    if (!ttn_booking_is_within_self_service_window($existing_date, $existing_time)) {
+        return array(
+            'success' => false,
+            'message' => 'This reservation starts in less than 24 hours, so it can no longer be modified online. Please call us at +1 (980) 503-3288 for help.',
+        );
+    }
+
     // Validate required fields
     if (empty($booking_data['date']) || empty($booking_data['time']) || empty($booking_data['duration'])) {
         return array('success' => false, 'message' => 'Missing required booking information.');
@@ -2863,6 +3419,16 @@ function ttn_crud_cancel_user_booking($booking_id, $user_email) {
     $booking = get_post($booking_id);
     if (!$booking || $booking->post_type !== 'ttn_booking') {
         return array('success' => false, 'message' => 'Booking not found.');
+    }
+
+    // Enforce 24-hour self-service cutoff; after that, customers must contact support.
+    $existing_date = get_post_meta($booking_id, 'ttn_booking_date', true);
+    $existing_time = get_post_meta($booking_id, 'ttn_booking_time', true);
+    if (!ttn_booking_is_within_self_service_window($existing_date, $existing_time)) {
+        return array(
+            'success' => false,
+            'message' => 'This reservation starts in less than 24 hours, so it can no longer be cancelled online. Please call us at +1 (980) 503-3288 for help.',
+        );
     }
 
     // Delete child slot reservations so the time slots immediately open up on the calendar
