@@ -300,3 +300,73 @@ function golf_simulator_theme_process_welcome_signup() {
 }
 add_action('admin_post_nopriv_golf_simulator_welcome_signup', 'golf_simulator_theme_process_welcome_signup');
 add_action('admin_post_golf_simulator_welcome_signup', 'golf_simulator_theme_process_welcome_signup');
+
+function golf_simulator_theme_register_mobile_welcome_signup_route() {
+    register_rest_route('ttn/v1', '/welcome-signup', array(
+        'methods' => WP_REST_Server::CREATABLE,
+        'callback' => 'golf_simulator_theme_process_mobile_welcome_signup',
+        'permission_callback' => '__return_true',
+        'args' => array(
+            'email' => array('required' => true, 'sanitize_callback' => 'sanitize_email'),
+            'phone' => array('required' => true, 'sanitize_callback' => 'sanitize_text_field'),
+        ),
+    ));
+}
+add_action('rest_api_init', 'golf_simulator_theme_register_mobile_welcome_signup_route');
+
+/**
+ * Simple per-IP rate limit for the public welcome-signup endpoint (max 5 submissions/hour).
+ */
+function golf_simulator_theme_welcome_signup_is_rate_limited() {
+    $ip = isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '';
+    $key = 'ttn_welcome_signup_' . md5($ip);
+    $count = (int) get_transient($key);
+
+    if ($count >= 5) {
+        return true;
+    }
+
+    set_transient($key, $count + 1, HOUR_IN_SECONDS);
+    return false;
+}
+
+function golf_simulator_theme_process_mobile_welcome_signup(WP_REST_Request $request) {
+    if (golf_simulator_theme_welcome_signup_is_rate_limited()) {
+        return new WP_Error('too_many_requests', 'Too many signup attempts. Please try again later.', array('status' => 429));
+    }
+
+    $email = sanitize_email($request->get_param('email'));
+    $phone = sanitize_text_field($request->get_param('phone'));
+
+    if (!is_email($email) || empty($phone)) {
+        return new WP_Error('invalid_signup', 'Please enter a valid email address and phone number.', array('status' => 400));
+    }
+
+    if (!preg_match('/^[0-9()+\-.\s]{7,20}$/', $phone)) {
+        return new WP_Error('invalid_signup', 'Please enter a valid phone number.', array('status' => 400));
+    }
+
+    global $wpdb;
+    $signup_table = $wpdb->prefix . 'welcome_signups';
+    $sms_table = $wpdb->prefix . 'welcome_sms_signups';
+    $existing = $wpdb->get_var($wpdb->prepare("SELECT id FROM $signup_table WHERE email = %s LIMIT 1", $email));
+
+    $signup_data = array('full_name' => '', 'email' => $email, 'phone' => $phone, 'source' => 'mobile_app', 'channel' => 'email');
+    if ($existing) {
+        $wpdb->update($signup_table, $signup_data, array('id' => $existing), array('%s', '%s', '%s', '%s', '%s'), array('%d'));
+    } else {
+        $wpdb->insert($signup_table, $signup_data, array('%s', '%s', '%s', '%s', '%s'));
+    }
+
+    golf_simulator_theme_send_opening_signup_email($email);
+
+    $sms_existing = $wpdb->get_var($wpdb->prepare("SELECT id FROM $sms_table WHERE phone = %s LIMIT 1", $phone));
+    $sms_data = array('full_name' => '', 'email' => $email, 'phone' => $phone, 'source' => 'mobile_app', 'status' => 'pending');
+    if ($sms_existing) {
+        $wpdb->update($sms_table, $sms_data, array('id' => $sms_existing), array('%s', '%s', '%s', '%s', '%s'), array('%d'));
+    } else {
+        $wpdb->insert($sms_table, $sms_data, array('%s', '%s', '%s', '%s', '%s'));
+    }
+
+    return new WP_REST_Response(array('success' => true), 201);
+}
