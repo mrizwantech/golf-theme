@@ -10,6 +10,17 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
+require_once __DIR__ . '/inc/class-ttn-jwt-auth.php';
+
+// Block anonymous access to the users endpoint (used for enumeration attacks) while leaving other REST routes untouched.
+add_filter('rest_endpoints', function ($endpoints) {
+    if (!is_user_logged_in()) {
+        unset($endpoints['/wp/v2/users']);
+        unset($endpoints['/wp/v2/users/(?P<id>[\d]+)']);
+    }
+    return $endpoints;
+});
+
 function ttn_booking_send_mail($to, $subject, $message) {
     $sender_name = static function () {
         return 'Tee Time Nexus';
