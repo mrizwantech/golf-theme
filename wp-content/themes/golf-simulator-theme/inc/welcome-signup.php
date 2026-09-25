@@ -307,6 +307,7 @@ function golf_simulator_theme_register_mobile_welcome_signup_route() {
         'callback' => 'golf_simulator_theme_process_mobile_welcome_signup',
         'permission_callback' => '__return_true',
         'args' => array(
+            'full_name' => array('required' => false, 'sanitize_callback' => 'sanitize_text_field'),
             'email' => array('required' => true, 'sanitize_callback' => 'sanitize_email'),
             'phone' => array('required' => true, 'sanitize_callback' => 'sanitize_text_field'),
         ),
@@ -335,6 +336,7 @@ function golf_simulator_theme_process_mobile_welcome_signup(WP_REST_Request $req
         return new WP_Error('too_many_requests', 'Too many signup attempts. Please try again later.', array('status' => 429));
     }
 
+    $full_name = sanitize_text_field($request->get_param('full_name'));
     $email = sanitize_email($request->get_param('email'));
     $phone = sanitize_text_field($request->get_param('phone'));
 
@@ -351,17 +353,17 @@ function golf_simulator_theme_process_mobile_welcome_signup(WP_REST_Request $req
     $sms_table = $wpdb->prefix . 'welcome_sms_signups';
     $existing = $wpdb->get_var($wpdb->prepare("SELECT id FROM $signup_table WHERE email = %s LIMIT 1", $email));
 
-    $signup_data = array('full_name' => '', 'email' => $email, 'phone' => $phone, 'source' => 'mobile_app', 'channel' => 'email');
+    $signup_data = array('full_name' => $full_name, 'email' => $email, 'phone' => $phone, 'source' => 'mobile_app', 'channel' => 'email');
     if ($existing) {
         $wpdb->update($signup_table, $signup_data, array('id' => $existing), array('%s', '%s', '%s', '%s', '%s'), array('%d'));
     } else {
         $wpdb->insert($signup_table, $signup_data, array('%s', '%s', '%s', '%s', '%s'));
     }
 
-    golf_simulator_theme_send_opening_signup_email($email);
+    golf_simulator_theme_send_opening_signup_email($email, $full_name);
 
     $sms_existing = $wpdb->get_var($wpdb->prepare("SELECT id FROM $sms_table WHERE phone = %s LIMIT 1", $phone));
-    $sms_data = array('full_name' => '', 'email' => $email, 'phone' => $phone, 'source' => 'mobile_app', 'status' => 'pending');
+    $sms_data = array('full_name' => $full_name, 'email' => $email, 'phone' => $phone, 'source' => 'mobile_app', 'status' => 'pending');
     if ($sms_existing) {
         $wpdb->update($sms_table, $sms_data, array('id' => $sms_existing), array('%s', '%s', '%s', '%s', '%s'), array('%d'));
     } else {
