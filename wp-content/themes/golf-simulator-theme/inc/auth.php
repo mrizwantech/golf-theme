@@ -245,7 +245,21 @@ function golf_simulator_theme_send_account_welcome_email($user_id) {
         $booking_url
     );
 
-    return wp_mail($user->user_email, $subject, $message, golf_simulator_theme_get_email_headers());
+    $mail_error = '';
+    $capture_mail_error = static function ($error) use (&$mail_error) {
+        if ($error instanceof WP_Error) {
+            $mail_error = $error->get_error_message();
+        }
+    };
+    add_action('wp_mail_failed', $capture_mail_error, 10, 1);
+    $sent = wp_mail($user->user_email, $subject, $message, golf_simulator_theme_get_email_headers());
+    remove_action('wp_mail_failed', $capture_mail_error, 10);
+
+    if (!$sent) {
+        error_log('TTN account welcome email failed: ' . ($mail_error ?: 'wp_mail returned false without an error message.'));
+    }
+
+    return $sent;
 }
 
 function golf_simulator_theme_process_profile_update() {

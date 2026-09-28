@@ -16,6 +16,7 @@ require_once get_template_directory() . '/inc/email-template.php';
 require_once get_template_directory() . '/inc/membership.php';
 require_once get_template_directory() . '/inc/auth.php';
 require_once get_template_directory() . '/inc/welcome-signup.php';
+require_once get_template_directory() . '/inc/mobile-membership-api.php';
 
 function golf_simulator_theme_render_launch_screen() {
     if (!is_front_page()) {
