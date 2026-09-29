@@ -234,12 +234,45 @@ function golf_simulator_theme_send_account_welcome_email($user_id) {
     $account_url = home_url('/my-account/');
     $booking_url = home_url('/book-a-bay/');
 
-    $subject = 'Welcome to Tee Time Nexus - Your Account is Ready';
-    $body = '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">Your Tee Time Nexus account has been created successfully. You can now manage bookings, track your membership, and book bays faster.</p>'
-        . '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">You can review or update your account and communication preferences anytime from <a href="' . esc_url($account_url) . '" style="color:#1769aa;text-decoration:underline;">My Account</a>.</p>';
+    $subject = 'Welcome to Tee Time Nexus';
+    $body = '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">We are excited to have you with us.</p>'
+        . '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">Your account is ready, and you are now one step closer to experiencing golf in a completely new way.</p>'
+        . '<p style="margin:0 0 22px;color:#4b5563;font-size:15px;line-height:1.6;">At Tee Time Nexus, we have created an indoor golf experience that combines <strong>advanced technology, realistic gameplay, and an immersive environment</strong> designed for golfers of every skill level.</p>'
+        . '<h2 style="margin:0 0 10px;color:#111827;font-size:18px;">Experience Golf Differently</h2>'
+        . '<p style="margin:0 0 14px;color:#4b5563;font-size:15px;line-height:1.6;">Step onto the tee and experience technology designed to capture the details of every shot - from ball flight and club movement to launch conditions and shot performance.</p>'
+        . '<p style="margin:0 0 8px;color:#4b5563;font-size:15px;line-height:1.6;">Our immersive simulation environment brings the golf course to life with:</p>'
+        . '<ul style="margin:0 0 18px;padding-left:22px;color:#4b5563;font-size:15px;line-height:1.8;">'
+        . '<li><strong>Realistic course environments and terrain</strong></li>'
+        . '<li><strong>Precise shot tracking and detailed performance data</strong></li>'
+        . '<li><strong>Advanced swing and ball-flight analysis</strong></li>'
+        . '<li><strong>A wide selection of world-class courses</strong></li>'
+        . '<li><strong>Practice tools designed to help you improve your game</strong></li>'
+        . '<li><strong>Realistic playing conditions and dynamic course surfaces</strong></li>'
+        . '<li><strong>A moving swing platform that responds to the terrain and helps recreate different lies</strong></li>'
+        . '<li><strong>Multiple game modes for practice, casual play, and competition</strong></li>'
+        . '</ul>'
+        . '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">The moving swing platform adds another dimension to the experience, allowing you to play from changing elevations and lies rather than standing on a completely flat surface for every shot.</p>'
+        . '<p style="margin:0 0 22px;color:#4b5563;font-size:15px;line-height:1.6;">And with automated features designed to keep the game moving, you can spend less time managing equipment and more time <strong>playing golf</strong>.</p>'
+        . '<h2 style="margin:0 0 10px;color:#111827;font-size:18px;">Your Golf. Your Schedule.</h2>'
+        . '<p style="margin:0 0 14px;color:#4b5563;font-size:15px;line-height:1.6;">For our members, the experience does not have to fit around traditional business hours.</p>'
+        . '<p style="margin:0 0 14px;color:#4b5563;font-size:15px;line-height:1.6;"><strong>Members enjoy 24/7 access to Tee Time Nexus.</strong></p>'
+        . '<p style="margin:0 0 22px;color:#4b5563;font-size:15px;line-height:1.6;">Whether you want to play early in the morning, get in a few holes after work, practice late at night, or squeeze in a session whenever your schedule allows, your golf experience is available around the clock.</p>'
+        . '<h2 style="margin:0 0 10px;color:#111827;font-size:18px;">Built for Golfers. Made for Everyone.</h2>'
+        . '<p style="margin:0 0 14px;color:#4b5563;font-size:15px;line-height:1.6;">Whether you are working on your swing, playing a competitive round, introducing someone to golf, or getting together with friends, Tee Time Nexus gives you a place to enjoy the game year-round.</p>'
+        . '<p style="margin:0 0 4px;color:#4b5563;font-size:15px;line-height:1.6;">No rain.</p><p style="margin:0 0 4px;color:#4b5563;font-size:15px;line-height:1.6;">No extreme heat.</p><p style="margin:0 0 14px;color:#4b5563;font-size:15px;line-height:1.6;">No waiting for perfect conditions.</p>'
+        . '<p style="margin:0 0 22px;color:#4b5563;font-size:15px;line-height:1.6;">Just <strong>you, your friends, and your next round.</strong></p>'
+        . '<h2 style="margin:0 0 10px;color:#111827;font-size:18px;">Your Next Round Is Waiting</h2>'
+        . '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">Your Tee Time Nexus account gives you access to your bookings, membership information, and everything you need to start planning your next visit.</p>'
+        . '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">We are putting the finishing touches on our space here in <strong>Mooresville, NC</strong>, and we are looking forward to welcoming you through the doors.</p>'
+        . '<p style="margin:0 0 8px;color:#4b5563;font-size:15px;line-height:1.6;"><strong>Get ready to play.</strong></p>'
+        . '<p style="margin:0 0 8px;color:#4b5563;font-size:15px;line-height:1.6;"><strong>Get ready to compete.</strong></p>'
+        . '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;"><strong>Get ready to experience golf like never before.</strong></p>'
+        . '<p style="margin:0 0 8px;color:#4b5563;font-size:15px;line-height:1.6;">Welcome to <strong>Tee Time Nexus</strong>.</p>'
+        . '<p style="margin:0 0 22px;color:#111827;font-size:16px;line-height:1.6;"><strong>Play More. Play Better. Play Anytime.</strong></p>'
+        . '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">See you on the tee,</p>';
     $message = golf_simulator_theme_render_email_template(
         'Account Confirmation',
-        'Welcome, ' . $display_name . '!',
+        'Welcome to Tee Time Nexus, ' . $display_name . '!',
         $body,
         'Book a Bay',
         $booking_url
