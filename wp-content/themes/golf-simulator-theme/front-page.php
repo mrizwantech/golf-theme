@@ -46,7 +46,7 @@
                 <section class="member-home-panel" aria-labelledby="upcoming-reservation-heading">
                     <div class="member-home-panel-heading">
                         <h2 id="upcoming-reservation-heading">Upcoming Reservation</h2>
-                        <a href="<?php echo esc_url(home_url('/my-account/')); ?>">View all</a>
+                        <a href="<?php echo esc_url(home_url('/my-bookings/')); ?>">View all</a>
                     </div>
                     <?php if ($next_booking) : ?>
                         <div class="member-home-reservation">

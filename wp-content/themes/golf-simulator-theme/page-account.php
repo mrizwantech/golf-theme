@@ -607,113 +607,11 @@ foreach ($user_bookings as $booking) {
         <?php endif; ?>
 
         <section class="account-membership-panel bookings-section" id="account-reservations">
-            <h2>My Bookings</h2>
-            
-            <?php if (empty($user_bookings)) : ?>
-                <p>You don't have any bookings yet. <a href="<?php echo esc_url(home_url('/book-a-bay/')); ?>">Book a bay now</a></p>
-            <?php else : ?>
-                <table class="bookings-table">
-                    <thead>
-                        <tr>
-                            <th>Bay</th>
-                            <th>Date</th>
-                            <th>Time</th>
-                            <th>Duration</th>
-                            <th>Price</th>
-                            <th>Status</th>
-                            <th>Payment</th>
-                            <th>Last Updated</th>
-                            <th>Reference</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <?php foreach ($user_bookings as $booking) : ?>
-                            <?php
-                            $end_time = '';
-                            $start_index = array_search($booking['time'], array_column($time_slots, 'label'));
-                            if ($start_index !== false) {
-                                $start_minutes = ((int) substr($time_slots[$start_index]['start'], 0, 2) * 60) + (int) substr($time_slots[$start_index]['start'], 3, 2);
-                                $end_minutes = $start_minutes + ((int) $booking['duration'] * 60);
-                                $end_time = date('g:i A', mktime((int) floor($end_minutes / 60) % 24, $end_minutes % 60));
-                            }
-                            $booking_date = strtotime($booking['date']);
-                            $today = strtotime(current_time('Y-m-d'));
-                            $is_cancelled = ($booking['status'] ?? '') === 'cancelled';
-                            $is_past = $booking_date < $today;
-                            $within_self_service_window = function_exists('ttn_booking_is_within_self_service_window')
-                                ? ttn_booking_is_within_self_service_window($booking['date'], $booking['time'])
-                                : true;
-                            $price = $booking['duration'] * (function_exists('ttn_booking_get_hourly_price') ? ttn_booking_get_hourly_price($booking['bay']) : 50);
-                            
-                            // Links to edit and cancel using action handlers
-                            $edit_url = get_permalink() . '?action=edit&booking_id=' . $booking['ID'];
-                            $cancel_url = wp_nonce_url(add_query_arg(array('ttn_cancel_booking_id' => $booking['ID']), admin_url('admin-post.php?action=ttn_cancel_user_booking')), 'ttn_cancel_booking_nonce');
-                            ?>
-                            <tr class="<?php echo $is_cancelled ? 'booking-past' : ($is_past ? 'booking-past' : 'booking-upcoming'); ?>">
-                                <td data-label="Bay"><?php echo esc_html($booking['bay']); ?></td>
-                                <td data-label="Date"><?php echo esc_html($booking['date']); ?></td>
-                                <td data-label="Time"><?php echo esc_html($booking['time']); ?> <?php if ($end_time) echo ' - ' . esc_html($end_time); ?></td>
-                                <td data-label="Duration"><?php echo esc_html($booking['duration']); ?>h</td>
-                                <td data-label="Price">$<?php echo number_format($price, 2); ?></td>
-                                <td data-label="Status">
-                                    <?php if ($is_cancelled) : ?>
-                                        <span style="color: #ff5c5c; font-weight: 700;">Cancelled</span>
-                                    <?php elseif (($booking['status'] ?? '') === 'updated') : ?>
-                                        <span style="color: var(--primary); font-weight: 700;">Updated</span>
-                                    <?php else : ?>
-                                        <span style="color: #6ee7b7; font-weight: 600;"><?php echo esc_html($booking['payment_status'] ?: 'Confirmed'); ?></span>
-                                    <?php endif; ?>
-                                </td>
-                                <td data-label="Payment">
-                                    <?php $payment = $booking['payment'] ?? array(); ?>
-                                    <?php if (!empty($payment)) : ?>
-                                        <strong><?php echo esc_html($payment['payment_method'] ?: 'WooCommerce'); ?></strong><br>
-                                        <small style="color: var(--muted);">
-                                            <?php echo esc_html($payment['order_status']); ?>
-                                            <?php if (!empty($booking['member_free_hours'])) : ?>
-                                                <?php echo esc_html(' - ' . $booking['member_free_hours'] . ' member ' . ($booking['member_free_hours'] === 1 ? 'hour' : 'hours') . ' redeemed'); ?>
-                                            <?php endif; ?>
-                                            <?php if (!empty($payment['card_last_four'])) : ?>
-                                                <?php echo esc_html(' - Card ending ' . $payment['card_last_four']); ?>
-                                            <?php endif; ?>
-                                            <?php if (!empty($payment['paid_at'])) : ?>
-                                                <?php echo esc_html(' - Paid ' . $payment['paid_at']); ?>
-                                            <?php endif; ?>
-                                        </small>
-                                    <?php else : ?>
-                                        <small style="color: var(--muted);">Payment details unavailable</small>
-                                    <?php endif; ?>
-                                </td>
-                                <td data-label="Last Updated">
-                                    <?php if (!empty($booking['updated_at'])) : ?>
-                                        <small style="color: var(--muted);"><?php echo esc_html(mysql2date('M j, Y', $booking['updated_at'])); ?></small>
-                                    <?php else : ?>
-                                        <small style="color: var(--muted);">—</small>
-                                    <?php endif; ?>
-                                </td>
-                                <td data-label="Reference"><?php echo esc_html($booking['booking_reference']); ?></td>
-                                <td data-label="Actions">
-                                    <?php if (!$is_past && !$is_cancelled && $within_self_service_window) : ?>
-                                        <a href="<?php echo esc_url($edit_url); ?>" class="btn btn-small">Edit</a>
-                                        <button type="button" class="btn btn-small btn-danger btn-cancel-booking-trigger" data-id="<?php echo esc_attr($booking['ID']); ?>" data-ref="<?php echo esc_attr($booking['booking_reference']); ?>" data-bay="<?php echo esc_attr($booking['bay']); ?>" data-date="<?php echo esc_attr($booking['date']); ?>" data-time="<?php echo esc_attr($booking['time']); ?>">Cancel</button>
-                                    <?php elseif ($is_cancelled) : ?>
-                                        <span class="badge-past" style="background: rgba(239, 68, 68, 0.15); color: #ff5c5c; border: 1px solid rgba(239, 68, 68, 0.4);">Cancelled</span>
-                                    <?php elseif (!$is_past && !$within_self_service_window) : ?>
-                                        <small style="color: var(--muted); display: block; line-height: 1.5;">Starts within 24 hours.<br>Call <a href="tel:+19805033288" style="color: var(--primary);">+1 (980) 503-3288</a> for changes.</small>
-                                    <?php else : ?>
-                                        <span class="badge-past">Past</span>
-                                    <?php endif; ?>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            <?php endif; ?>
-
-            <p style="margin-top: 20px;">
-                <a href="<?php echo esc_url(home_url('/book-a-bay/')); ?>" class="btn btn-primary">Book a Bay</a>
-            </p>
+            <div class="account-bookings-heading">
+                <h2>My Bookings</h2>
+                <a href="<?php echo esc_url(home_url('/my-bookings/')); ?>" class="account-bookings-view-all">View all bookings &rarr;</a>
+            </div>
+            <p class="account-bookings-summary">View your upcoming reservations, past visits, and booking details.</p>
         </section>
     </article>
 

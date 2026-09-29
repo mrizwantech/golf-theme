@@ -18,6 +18,28 @@ require_once get_template_directory() . '/inc/auth.php';
 require_once get_template_directory() . '/inc/welcome-signup.php';
 require_once get_template_directory() . '/inc/mobile-membership-api.php';
 
+function golf_simulator_theme_ensure_my_bookings_page() {
+    $page = get_page_by_path('my-bookings');
+    if (!$page) {
+        $page_id = wp_insert_post(array(
+            'post_title' => 'My Bookings',
+            'post_name' => 'my-bookings',
+            'post_status' => 'publish',
+            'post_type' => 'page',
+            'post_content' => '',
+        ));
+        if (is_wp_error($page_id) || !$page_id) {
+            return;
+        }
+        $page = get_post($page_id);
+    }
+
+    if ($page && get_post_meta($page->ID, '_wp_page_template', true) !== 'page-my-bookings.php') {
+        update_post_meta($page->ID, '_wp_page_template', 'page-my-bookings.php');
+    }
+}
+add_action('init', 'golf_simulator_theme_ensure_my_bookings_page', 20);
+
 function golf_simulator_theme_render_launch_screen() {
     if (!is_front_page() || is_user_logged_in()) {
         return;
