@@ -1,4 +1,80 @@
 <?php get_header(); ?>
+<?php if (is_user_logged_in()) : ?>
+    <?php
+    $current_user = wp_get_current_user();
+    $first_name = get_user_meta($current_user->ID, 'first_name', true);
+    $first_name = $first_name ?: $current_user->display_name;
+    $first_name = trim(explode(' ', $first_name)[0]);
+    $bookings = function_exists('ttn_get_user_bookings') ? ttn_get_user_bookings($current_user->user_email) : array();
+    $upcoming_bookings = array();
+
+    foreach ($bookings as $booking) {
+        if (($booking['status'] ?? '') === 'cancelled' || empty($booking['date']) || empty($booking['time'])) {
+            continue;
+        }
+        try {
+            $booking_start = new DateTimeImmutable($booking['date'] . ' ' . $booking['time'], wp_timezone());
+            if ($booking_start->getTimestamp() >= time()) {
+                $booking['_start_timestamp'] = $booking_start->getTimestamp();
+                $upcoming_bookings[] = $booking;
+            }
+        } catch (Exception $exception) {
+            continue;
+        }
+    }
+    usort($upcoming_bookings, static function ($first, $second) {
+        return $first['_start_timestamp'] <=> $second['_start_timestamp'];
+    });
+    $next_booking = $upcoming_bookings[0] ?? null;
+    $membership = function_exists('golf_simulator_theme_get_user_membership_record')
+        ? golf_simulator_theme_get_user_membership_record($current_user->ID)
+        : null;
+    $hour = (int) current_time('G');
+    $greeting = $hour < 12 ? 'Good morning' : ($hour < 18 ? 'Good afternoon' : 'Good evening');
+    $member_home_image = get_theme_mod('golf_simulator_slide_1_image', 'https://images.unsplash.com/photo-1535131749006-b7f58c99034b?auto=format&fit=crop&w=1800&q=85');
+    ?>
+    <main class="member-home">
+        <div class="container member-home-inner">
+            <section class="member-home-welcome" style="background-image: linear-gradient(90deg, rgba(3, 12, 12, .94) 0%, rgba(3, 12, 12, .76) 48%, rgba(3, 12, 12, .2) 100%), url('<?php echo esc_url($member_home_image); ?>');">
+                <span class="member-home-kicker">TEE TIME NEXUS · MEMBER HOME</span>
+                <h1><?php echo esc_html($greeting . ', ' . $first_name); ?></h1>
+                <p>Your next round starts here. Reserve a bay, manage your bookings, and check your membership.</p>
+                <a class="btn btn-primary member-home-book" href="<?php echo esc_url(home_url('/book-a-bay/')); ?>">RESERVE A BAY <span aria-hidden="true">&#8594;</span></a>
+            </section>
+
+            <div class="member-home-card-grid">
+                <section class="member-home-panel" aria-labelledby="upcoming-reservation-heading">
+                    <div class="member-home-panel-heading">
+                        <h2 id="upcoming-reservation-heading">Upcoming Reservation</h2>
+                        <a href="<?php echo esc_url(home_url('/my-account/')); ?>">View all</a>
+                    </div>
+                    <?php if ($next_booking) : ?>
+                        <div class="member-home-reservation">
+                            <span class="member-home-reservation-icon" aria-hidden="true">&#9678;</span>
+                            <div>
+                                <strong><?php echo esc_html($next_booking['bay']); ?> Bay</strong>
+                                <p><?php echo esc_html(date_i18n(get_option('date_format'), strtotime($next_booking['date']))); ?> · <?php echo esc_html($next_booking['time']); ?></p>
+                                <p><?php echo esc_html($next_booking['players']); ?> players · <?php echo esc_html($next_booking['duration']); ?> hour<?php echo (int) $next_booking['duration'] === 1 ? '' : 's'; ?></p>
+                            </div>
+                            <span class="member-home-reference"><?php echo esc_html($next_booking['booking_reference']); ?></span>
+                        </div>
+                    <?php else : ?>
+                        <p class="member-home-empty">No upcoming reservations. Your next round starts here.</p>
+                    <?php endif; ?>
+                </section>
+
+                <section class="member-home-panel member-home-membership" aria-labelledby="membership-status-heading">
+                    <span class="member-home-membership-icon" aria-hidden="true">&#10022;</span>
+                    <div class="member-home-membership-copy">
+                        <h2 id="membership-status-heading"><?php echo $membership ? esc_html($membership->package_name) : 'Founding Member'; ?></h2>
+                        <p><?php echo $membership ? esc_html(ucfirst($membership->status) . ' membership') : 'Your membership is ready when you are.'; ?></p>
+                    </div>
+                    <a href="<?php echo esc_url(home_url('/membership/')); ?>">View membership</a>
+                </section>
+            </div>
+        </div>
+    </main>
+<?php else : ?>
 <main>
     <?php
     $slides = array(
@@ -112,4 +188,5 @@
         </div>
     </section>
 </main>
+<?php endif; ?>
 <?php get_footer(); ?>

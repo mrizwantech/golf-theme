@@ -72,13 +72,55 @@ $profile_error = isset($_GET['profile_error']) ? sanitize_text_field(wp_unslash(
 $user_phone = get_user_meta($current_user->ID, 'phone_number', true);
 $user_sms_opt_in = get_user_meta($current_user->ID, 'sms_opt_in', true) === '1';
 $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === '1';
+$name_parts = preg_split('/\s+/', trim($current_user->display_name));
+$account_initials = '';
+foreach (array_slice((array) $name_parts, 0, 2) as $name_part) {
+    $account_initials .= strtoupper(substr($name_part, 0, 1));
+}
+$latest_payment_method = '';
+foreach ($user_bookings as $booking) {
+    if (!empty($booking['payment']['card_last_four'])) {
+        $latest_payment_method = '•••• ' . $booking['payment']['card_last_four'];
+        break;
+    }
+}
 ?>
 <main class="container">
-    <article class="entry-content">
-        <div class="account-header">
-            <h1>My Account</h1>
-            <p>Welcome, <strong><?php echo esc_html($current_user->display_name); ?></strong> (<?php echo esc_html($user_email); ?>)</p>
-            <p><a href="<?php echo esc_url(wp_logout_url(home_url())); ?>" class="btn btn-secondary">Logout</a></p>
+    <article class="account-profile-page">
+        <header class="account-profile-header">
+            <div class="account-avatar" aria-hidden="true"><?php echo esc_html($account_initials ?: 'TN'); ?></div>
+            <div class="account-profile-identity">
+                <h1><?php echo esc_html($current_user->display_name); ?></h1>
+                <p><?php echo esc_html($user_email); ?></p>
+            </div>
+            <span class="account-profile-label">PROFILE</span>
+        </header>
+
+        <nav class="account-profile-menu" aria-label="Account sections">
+            <a class="account-profile-menu-row" href="#account-membership">
+                <span class="account-menu-icon" aria-hidden="true">♧</span><span>Membership</span>
+                <strong><?php echo $membership ? esc_html($membership->package_name) : 'Founding Member'; ?></strong>
+            </a>
+            <a class="account-profile-menu-row" href="<?php echo esc_url(function_exists('wc_get_account_endpoint_url') ? wc_get_account_endpoint_url('payment-methods') : home_url('/my-account/payment-methods/')); ?>">
+                <span class="account-menu-icon" aria-hidden="true">▣</span><span>Payment Methods</span>
+                <strong><?php echo esc_html($latest_payment_method ?: 'Manage'); ?></strong>
+            </a>
+            <a class="account-profile-menu-row" href="#account-reservations">
+                <span class="account-menu-icon" aria-hidden="true">▦</span><span>Reservations</span><span class="account-menu-chevron" aria-hidden="true">›</span>
+            </a>
+            <a class="account-profile-menu-row" href="#account-notifications">
+                <span class="account-menu-icon" aria-hidden="true">♧</span><span>Notifications</span><span class="account-menu-chevron" aria-hidden="true">›</span>
+            </a>
+            <a class="account-profile-menu-row" href="#account-settings">
+                <span class="account-menu-icon" aria-hidden="true">⚙</span><span>Account Settings</span><span class="account-menu-chevron" aria-hidden="true">›</span>
+            </a>
+            <a class="account-profile-menu-row" href="mailto:sales@teetimenexus.com">
+                <span class="account-menu-icon" aria-hidden="true">?</span><span>Help &amp; Support</span><span class="account-menu-chevron" aria-hidden="true">›</span>
+            </a>
+        </nav>
+
+        <div class="account-profile-actions">
+            <a href="<?php echo esc_url(wp_logout_url(home_url())); ?>">Log out</a>
         </div>
 
         <?php if ($message && !empty($message['message'])) : ?>
@@ -111,8 +153,8 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
             </div>
         <?php endif; ?>
 
-        <section class="account-membership-panel">
-            <h2>Communication Preferences</h2>
+        <section class="account-membership-panel" id="account-settings">
+            <h2 id="account-notifications">Communication Preferences</h2>
             <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
                 <input type="hidden" name="action" value="golf_simulator_profile_update">
                 <?php wp_nonce_field('ttn_profile_update', 'ttn_profile_nonce'); ?>
@@ -134,7 +176,7 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
             </form>
         </section>
 
-        <section class="account-membership-panel">
+        <section class="account-membership-panel" id="account-membership">
             <h2>My Membership</h2>
             <?php if ($membership) : ?>
                 <div class="account-membership-grid">
@@ -564,7 +606,7 @@ $user_promo_opt_in = get_user_meta($current_user->ID, 'promo_opt_in', true) === 
         <?php endif; ?>
         <?php endif; ?>
 
-        <section class="account-membership-panel bookings-section">
+        <section class="account-membership-panel bookings-section" id="account-reservations">
             <h2>My Bookings</h2>
             
             <?php if (empty($user_bookings)) : ?>
