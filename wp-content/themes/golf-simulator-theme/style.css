@@ -114,6 +114,7 @@ img {
 }
 
 .launch-splash-inner {
+    position: relative;
     text-align: center;
     padding: 40px 28px;
     border: 1px solid var(--border-soft);
@@ -123,6 +124,41 @@ img {
     backdrop-filter: blur(10px);
     max-width: 620px;
     width: min(90vw, 620px);
+}
+
+.launch-splash-close {
+    position: absolute;
+    top: 14px;
+    right: 16px;
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: 1px solid var(--border-soft-strong);
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.35);
+    color: var(--heading);
+    font-size: 1.6rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.launch-splash-close:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+}
+
+.launch-splash-actions {
+    margin-top: 26px;
+}
+
+.launch-splash-actions .btn {
+    min-width: 240px;
+    padding: 15px 28px;
+    font-size: 1rem;
+    font-weight: 900;
 }
 
 .launch-splash-kicker,
@@ -253,20 +289,83 @@ img {
 }
 
 .container {
-    width: min(1280px, calc(100% - 40px));
+    width: min(1440px, calc(100% - 40px));
+    max-width: 1440px;
     margin: 0 auto;
 }
 
 .home-booking-layout {
+    display: block;
+    width: 100%;
+    max-width: 1440px;
+    margin-left: auto;
+    margin-right: auto;
+    padding-top: 24px;
+}
+
+.home-booking-layout:has(.home-booking-sidebar) {
     display: grid;
     grid-template-columns: minmax(0, 7fr) minmax(300px, 3fr);
     gap: 24px;
     align-items: stretch;
-    padding-top: 24px;
+}
+
+.home-booking-layout .hero-slider {
+    width: 100%;
+    max-width: 1440px;
 }
 
 .home-hero-stage {
     min-height: 720px;
+}
+
+.home-hero-full {
+    padding: 0;
+}
+
+.home-hero-full .hero-slider {
+    border-radius: 0;
+    box-shadow: none;
+    min-height: 0;
+    height: clamp(520px, 88vh, 940px);
+}
+
+.home-hero-full .hero-slide {
+    min-height: 0;
+    height: 100%;
+    padding: 0;
+}
+
+.home-hero-full .hero-copy {
+    /* Keep the copy panel aligned with the site container on wide screens. */
+    width: auto;
+    max-width: 580px;
+    margin-left: max(24px, calc((100vw - 1440px) / 2 + 20px));
+    margin-right: 24px;
+}
+
+.hero-actions-lg {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-top: 28px;
+}
+
+.btn-hero {
+    min-width: 230px;
+    padding: 18px 34px;
+    border-radius: 14px;
+    font-size: 1.05rem;
+    font-weight: 900;
+    letter-spacing: 0.02em;
+}
+
+@media (max-width: 640px) {
+    .btn-hero {
+        width: 100%;
+        min-width: 0;
+        padding: 16px 24px;
+    }
 }
 
 .hero-slider {
@@ -274,6 +373,9 @@ img {
     overflow: hidden;
     min-height: 720px;
     height: 100%;
+    max-width: 1440px;
+    margin-left: auto;
+    margin-right: auto;
     background: var(--surface-hero);
     border-radius: 26px;
     box-shadow: var(--shadow);
@@ -625,7 +727,7 @@ img {
 }
 
 @media (max-width: 980px) {
-    .home-booking-layout {
+    .home-booking-layout:has(.home-booking-sidebar) {
         grid-template-columns: 1fr;
     }
 
@@ -1310,7 +1412,7 @@ img {
 
 .member-home-inner {
     display: grid;
-    max-width: 1280px;
+    max-width: 1440px;
     gap: 28px;
 }
 
@@ -2831,6 +2933,10 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     .hero-slider,
     .hero-slide {
         min-height: 560px;
+    }
+
+    .home-hero-full .hero-slider {
+        height: clamp(420px, 70vh, 600px);
     }
 }
 

@@ -81,23 +81,21 @@ function ttn_booking_get_account_management_cta($customer_email = '', $user_id =
         return 'Login to manage your booking';
     }
 
-    return 'Sign up to manage your booking';
+    return 'Login to manage your booking';
 }
 
 function ttn_booking_get_account_management_url($customer_email = '', $redirect_to = '') {
     $account_url = $redirect_to ?: home_url('/my-account/');
 
     if (function_exists('golf_simulator_theme_get_login_url')) {
-        $tab = ($customer_email && is_email($customer_email) && email_exists($customer_email)) ? 'login' : 'register';
-        return golf_simulator_theme_get_login_url($account_url, $tab);
+        return golf_simulator_theme_get_login_url($account_url, 'login');
     }
 
     $login_url = home_url('/login/');
-    $tab = ($customer_email && is_email($customer_email) && email_exists($customer_email)) ? 'login' : 'register';
 
     return add_query_arg(array(
         'redirect_to' => $account_url,
-        'tab' => $tab,
+        'tab' => 'login',
     ), $login_url);
 }
 
@@ -709,8 +707,8 @@ function ttn_booking_get_bay_thumbnail_url($bay_name, $size = 'medium') {
     return $thumbnail_id ? (wp_get_attachment_image_url($thumbnail_id, $size) ?: '') : '';
 }
 
-function ttn_booking_get_hourly_price($bay_name) {
-    $bay = ttn_booking_get_bay_config($bay_name);
+function ttn_booking_get_hourly_price($bay_name = '') {
+    $bay = $bay_name ? ttn_booking_get_bay_config($bay_name) : null;
     $standard_price = (float) get_option('ttn_standard_hourly_price', 50);
     $premium_price = (float) get_option('ttn_premium_hourly_price', 65);
 
@@ -1556,6 +1554,47 @@ function ttn_booking_process_wc_order($order_id) {
     $customer_email = $order->get_billing_email();
     $customer_phone = $order->get_billing_phone();
     $user_id = $order->get_customer_id();
+
+    // If user is not logged in or checked out without an existing account, create account automatically
+    $newly_created_user = false;
+    if (!$user_id && $customer_email && is_email($customer_email)) {
+        $existing_user = get_user_by('email', $customer_email);
+        if ($existing_user) {
+            $user_id = $existing_user->ID;
+            $order->set_customer_id($user_id);
+            $order->save();
+        } else {
+            $generated_username = ttn_booking_generate_unique_username($customer_email);
+            $random_password = wp_generate_password(16, true, true);
+            $new_user_id = wp_insert_user(array(
+                'user_login' => $generated_username,
+                'user_email' => $customer_email,
+                'user_pass' => $random_password,
+                'display_name' => $customer_name ?: $generated_username,
+                'first_name' => $order->get_billing_first_name() ?: $customer_name,
+                'last_name' => $order->get_billing_last_name() ?: '',
+                'role' => 'subscriber',
+            ));
+
+            if (!is_wp_error($new_user_id)) {
+                $user_id = $new_user_id;
+                $newly_created_user = true;
+                $order->set_customer_id($user_id);
+                $order->save();
+
+                if ($customer_phone) {
+                    update_user_meta($user_id, 'phone_number', $customer_phone);
+                    update_user_meta($user_id, 'billing_phone', $customer_phone);
+                }
+
+                // Send Account Creation / Welcome Email
+                if (function_exists('golf_simulator_theme_send_account_welcome_email')) {
+                    golf_simulator_theme_send_account_welcome_email($user_id);
+                }
+            }
+        }
+    }
+
     $created_booking = false;
     $confirmed_reservations = array();
 
@@ -1858,8 +1897,8 @@ function ttn_booking_shortcode() {
 
                         <?php if (!is_user_logged_in()) : ?>
                             <div class="guest-booking-notice" style="margin: 16px 0; padding: 14px 18px; background: rgba(161, 224, 76, 0.08); border: 1px solid rgba(161, 224, 76, 0.3); border-radius: 12px; font-size: 0.92rem; line-height: 1.6;">
-                                <strong style="color: var(--primary);">Guest Reservation Note:</strong>
-                                <p style="margin: 6px 0 0; color: #ffffff;">To modify or reschedule this reservation online, <a href="<?php echo esc_url(golf_simulator_theme_get_login_url(home_url('/my-account/'), 'register')); ?>" style="color: var(--primary); text-decoration: underline; font-weight: 700;">create an account using <?php echo esc_html($confirmed_booking['email']); ?></a>. Otherwise, changes can be made by calling us at <a href="tel:+19805033288" style="color: var(--primary); text-decoration: underline; font-weight: 700;">+1 (980) 503-3288</a> with your booking reference <strong><?php echo esc_html($confirmed_booking['reference']); ?></strong>.</p>
+                                <strong style="color: var(--primary);">Account Ready:</strong>
+                                <p style="margin: 6px 0 0; color: #ffffff;">An account has been created for <strong><?php echo esc_html($confirmed_booking['email']); ?></strong>. We've sent you two emails: your <strong>Booking Confirmation</strong> and an <strong>Account Welcome email</strong>. You can <a href="<?php echo esc_url(golf_simulator_theme_get_login_url(home_url('/my-account/'), 'login')); ?>" style="color: var(--primary); text-decoration: underline; font-weight: 700;">log in to manage your reservation</a> anytime.</p>
                             </div>
                         <?php endif; ?>
                     <?php endif; ?>
@@ -1869,11 +1908,7 @@ function ttn_booking_shortcode() {
                         <p>✓ SMS notification if number provided</p>
                     </div>
                     <div class="success-actions">
-                        <?php if (is_user_logged_in()) : ?>
-                            <a href="<?php echo esc_url(home_url('/my-account/')); ?>" class="btn btn-small-white">View My Bookings</a>
-                        <?php else : ?>
-                            <a href="<?php echo esc_url(golf_simulator_theme_get_login_url(home_url('/my-account/'), 'register')); ?>" class="btn btn-small-white">Create Account &amp; Manage</a>
-                        <?php endif; ?>
+                        <a href="<?php echo esc_url(home_url('/my-account/')); ?>" class="btn btn-small-white">View My Bookings</a>
                         <a href="<?php echo esc_url(home_url('/book-a-bay/')); ?>" class="btn btn-small-white">Book Another Bay</a>
                     </div>
                 </div>
@@ -1881,20 +1916,7 @@ function ttn_booking_shortcode() {
             </div>
         <?php endif; ?>
 
-        <p class="booking-note">Select your bay type, choose a bay, pick your date and time, then proceed to payment.</p>
-
-        <?php if (!is_user_logged_in()) : ?>
-            <div class="guest-signup-banner" style="margin: 0 0 24px; padding: 16px 20px; background: rgba(161, 224, 76, 0.08); border: 1px solid rgba(161, 224, 76, 0.3); border-radius: 12px;">
-                <strong style="color: var(--primary); display: block; margin-bottom: 8px; font-size: 1rem;">Booking as a guest? Create a free account first &mdash; it only takes a minute.</strong>
-                <ul style="margin: 0 0 12px; padding-left: 20px; color: #ffffff; font-size: 0.9rem; line-height: 1.7;">
-                    <li>Modify or reschedule your booking online anytime, without calling support</li>
-                    <li>See your complete booking history in one place</li>
-                    <li>Unlock member perks and discounted rates</li>
-                    <li>Faster checkout on future reservations</li>
-                </ul>
-                <a href="<?php echo esc_url(golf_simulator_theme_get_login_url(home_url('/my-account/'), 'register')); ?>" class="btn btn-small-white">Create Free Account</a>
-            </div>
-        <?php endif; ?>
+        <p class="booking-note">Select your bay type, choose a bay, pick your date and time, then proceed to payment. An account will be automatically set up for you upon booking.</p>
 
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data" id="ttn-checkout-form">
             <input type="hidden" name="action" value="ttn_booking_start_woocommerce_checkout">

@@ -105,48 +105,35 @@
     );
     ?>
     <section class="home-booking-layout container">
-        <div class="home-hero-stage">
-            <div class="hero-slider">
-                <button class="slider-arrow slider-prev" type="button" aria-label="Previous slide">&#10094;</button>
-                <div class="slider-track">
-                    <?php foreach ($slides as $index => $slide) : ?>
-                        <article class="hero-slide <?php echo $index === 0 ? 'active' : ''; ?>" style="background-image: url('<?php echo esc_url($slide['image']); ?>');">
-                            <div class="container hero-copy">
-                                <span class="kicker"><?php echo esc_html($slide['kicker']); ?></span>
-                                <h1><?php echo esc_html($slide['heading']); ?></h1>
-                                <p><?php echo esc_html($slide['text']); ?></p>
-                                <div class="hero-actions">
-                                    <a class="btn btn-primary" href="<?php echo esc_url($slide['button_url']); ?>"><?php echo esc_html($slide['button_text']); ?></a>
-                                    <?php if (0 === $index) : ?>
-                                        <a class="btn btn-secondary" href="<?php echo esc_url(home_url('/membership/')); ?>">Reserve Your Founding Rate</a>
-                                    <?php endif; ?>
-                                </div>
+        <div class="hero-slider">
+            <button class="slider-arrow slider-prev" type="button" aria-label="Previous slide">&#10094;</button>
+            <div class="slider-track">
+                <?php foreach ($slides as $index => $slide) : ?>
+                    <article class="hero-slide <?php echo $index === 0 ? 'active' : ''; ?>" style="background-image: url('<?php echo esc_url($slide['image']); ?>');">
+                        <div class="hero-copy">
+                            <span class="kicker"><?php echo esc_html($slide['kicker']); ?></span>
+                            <h1><?php echo esc_html($slide['heading']); ?></h1>
+                            <p><?php echo esc_html($slide['text']); ?></p>
+                            <div class="hero-actions hero-actions-lg">
+                                <a class="btn btn-primary btn-hero" href="<?php echo esc_url(home_url('/membership/')); ?>">Become a Member</a>
+                                <a class="btn btn-secondary btn-hero" href="<?php echo esc_url(home_url('/book-a-bay/')); ?>">Book a Bay</a>
                             </div>
-                        </article>
-                    <?php endforeach; ?>
-                </div>
-                <button class="slider-arrow slider-next" type="button" aria-label="Next slide">&#10095;</button>
-                <div class="slider-dots" aria-label="Slider navigation"></div>
+                        </div>
+                    </article>
+                <?php endforeach; ?>
             </div>
+            <button class="slider-arrow slider-next" type="button" aria-label="Next slide">&#10095;</button>
+            <div class="slider-dots" aria-label="Slider navigation"></div>
         </div>
-
-        <aside class="home-booking-sidebar">
-            <div class="booking-panel">
-                <div class="booking-panel-head">
-                    <div class="booking-panel-title">Book Your Session</div>
-                    <span class="booking-live-badge">Real-time availability</span>
-                </div>
-                <?php echo do_shortcode('[ttn_booking_form]'); ?>
-            </div>
-        </aside>
     </section>
 
     <section class="section" id="services">
         <div class="container">
-            <h2 class="section-title">Why golfers choose us</h2>
+            <h2 class="section-title">WHERE GOLF MEETS TECHNOLOGY</h2>
+            <h3 class="section-subtitle">Experience the ultimate fusion of cutting-edge golf technology and immersive gameplay.</h3>
             <div class="grid">
                 <div class="card">
-                    <div class="kicker">Precision</div>
+                    <div class="kicker">Auto Tee</div>
                     <h3>Professional simulator setup</h3>
                     <p>High-speed launch tracking and immersive course play make every session feel like the real thing.</p>
                 </div>
@@ -170,7 +157,11 @@
             <div class="grid">
                 <div class="card">
                     <div class="kicker">Per Hour / Per Bay</div>
-                    <div class="price">$50</div>
+                    <?php
+                    $front_hourly_price = function_exists('ttn_booking_get_hourly_price') ? ttn_booking_get_hourly_price() : (float) get_option('ttn_standard_hourly_price', 50);
+                    $formatted_front_price = (floor($front_hourly_price) == $front_hourly_price) ? number_format($front_hourly_price, 0) : number_format($front_hourly_price, 2);
+                    ?>
+                    <div class="price">$<?php echo esc_html($formatted_front_price); ?></div>
                     <p>Hourly bay rental for golf simulator sessions, practice, and private play.</p>
                 </div>
             </div>
