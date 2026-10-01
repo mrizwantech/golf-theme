@@ -643,10 +643,10 @@ function ttn_normalize_bay_name($bay_name) {
 
 function ttn_booking_get_default_bays() {
     return array(
-        'bay-1' => array('name' => 'Apex', 'type' => 'dual', 'location' => 'front-right', 'premium' => false),
-        'bay-2' => array('name' => 'Nexus', 'type' => 'dual', 'location' => 'front-left', 'premium' => false),
-        'bay-3' => array('name' => 'Fairway', 'type' => 'right-handed', 'location' => 'back-right', 'premium' => false),
-        'bay-4' => array('name' => 'Pin', 'type' => 'right-handed', 'location' => 'back-left', 'premium' => false),
+        'bay-1' => array('name' => 'Apex', 'type' => 'dual', 'location' => 'front-right', 'premium' => false, 'thumbnail_id' => 0),
+        'bay-2' => array('name' => 'Nexus', 'type' => 'dual', 'location' => 'front-left', 'premium' => false, 'thumbnail_id' => 0),
+        'bay-3' => array('name' => 'Fairway', 'type' => 'right-handed', 'location' => 'back-right', 'premium' => false, 'thumbnail_id' => 0),
+        'bay-4' => array('name' => 'Pin', 'type' => 'right-handed', 'location' => 'back-left', 'premium' => false, 'thumbnail_id' => 0),
     );
 }
 
@@ -703,6 +703,12 @@ function ttn_booking_get_bay_config($bay_name) {
     return null;
 }
 
+function ttn_booking_get_bay_thumbnail_url($bay_name, $size = 'medium') {
+    $bay = ttn_booking_get_bay_config($bay_name);
+    $thumbnail_id = $bay ? absint($bay['thumbnail_id'] ?? 0) : 0;
+    return $thumbnail_id ? (wp_get_attachment_image_url($thumbnail_id, $size) ?: '') : '';
+}
+
 function ttn_booking_get_hourly_price($bay_name) {
     $bay = ttn_booking_get_bay_config($bay_name);
     $standard_price = (float) get_option('ttn_standard_hourly_price', 50);
@@ -726,6 +732,7 @@ function ttn_booking_sync_bay_products($bays) {
         $product->set_status('publish');
         $product->set_catalog_visibility('hidden');
         $product->set_virtual(true);
+        $product->set_image_id(absint($bay['thumbnail_id'] ?? 0));
         $product->save();
     }
 }
@@ -913,11 +920,14 @@ function ttn_booking_bays_admin_page() {
             if (!$bay_key || !$name) {
                 continue;
             }
+            $existing_bays = get_option('ttn_bays', array());
+            $existing_thumbnail_id = isset($existing_bays[$bay_key]['thumbnail_id']) ? absint($existing_bays[$bay_key]['thumbnail_id']) : 0;
             $bays[$bay_key] = array(
                 'name' => $name,
                 'type' => sanitize_key($posted_bay['type'] ?? 'right-handed'),
                 'location' => sanitize_key($posted_bay['location'] ?? 'front-right'),
                 'premium' => !empty($posted_bay['premium']),
+                'thumbnail_id' => absint($posted_bay['thumbnail_id'] ?? $existing_thumbnail_id),
             );
         }
 
@@ -928,6 +938,7 @@ function ttn_booking_bays_admin_page() {
                 'type' => sanitize_key($_POST['new_bay_type'] ?? 'right-handed'),
                 'location' => sanitize_key($_POST['new_bay_location'] ?? 'front-right'),
                 'premium' => !empty($_POST['new_bay_premium']),
+                'thumbnail_id' => 0,
             );
         }
 
@@ -940,6 +951,7 @@ function ttn_booking_bays_admin_page() {
     }
 
     $bays = ttn_booking_get_bay_configs();
+    wp_enqueue_media();
     $types = array('right-handed' => 'Right-handed', 'left-handed' => 'Left-handed', 'dual' => 'Dual');
     $locations = array('front-right' => 'Front right', 'front-left' => 'Front left', 'back-right' => 'Back right', 'back-left' => 'Back left');
     ?>
@@ -948,14 +960,26 @@ function ttn_booking_bays_admin_page() {
         <form method="post">
             <?php wp_nonce_field('ttn_save_bays', 'ttn_bays_nonce'); ?>
             <table class="widefat striped">
-                <thead><tr><th>Name</th><th>Type</th><th>Location</th><th>Premium</th></tr></thead>
+                <thead><tr><th>Name</th><th>Type</th><th>Location</th><th>Premium</th><th>Thumbnail</th></tr></thead>
                 <tbody>
                 <?php foreach ($bays as $bay_key => $bay) : ?>
+                    <?php
+                    $thumbnail_id = absint($bay['thumbnail_id'] ?? 0);
+                    $thumbnail_url = $thumbnail_id ? wp_get_attachment_image_url($thumbnail_id, 'thumbnail') : '';
+                    $thumbnail_field_id = 'ttn-bay-thumbnail-' . sanitize_html_class($bay_key);
+                    $thumbnail_preview_id = 'ttn-bay-thumbnail-preview-' . sanitize_html_class($bay_key);
+                    ?>
                     <tr>
                         <td><input class="regular-text" name="bays[<?php echo esc_attr($bay_key); ?>][name]" value="<?php echo esc_attr($bay['name']); ?>" required></td>
                         <td><select name="bays[<?php echo esc_attr($bay_key); ?>][type]"><?php foreach ($types as $value => $label) : ?><option value="<?php echo esc_attr($value); ?>" <?php selected($bay['type'], $value); ?>><?php echo esc_html($label); ?></option><?php endforeach; ?></select></td>
                         <td><select name="bays[<?php echo esc_attr($bay_key); ?>][location]"><?php foreach ($locations as $value => $label) : ?><option value="<?php echo esc_attr($value); ?>" <?php selected($bay['location'], $value); ?>><?php echo esc_html($label); ?></option><?php endforeach; ?></select></td>
                         <td><label><input type="checkbox" name="bays[<?php echo esc_attr($bay_key); ?>][premium]" value="1" <?php checked(!empty($bay['premium'])); ?>> Premium price</label></td>
+                        <td class="ttn-bay-thumbnail-cell">
+                            <input type="hidden" id="<?php echo esc_attr($thumbnail_field_id); ?>" name="bays[<?php echo esc_attr($bay_key); ?>][thumbnail_id]" value="<?php echo esc_attr($thumbnail_id); ?>">
+                            <img id="<?php echo esc_attr($thumbnail_preview_id); ?>" src="<?php echo esc_url($thumbnail_url); ?>" alt="" <?php echo $thumbnail_url ? '' : 'hidden'; ?>>
+                            <button type="button" class="button ttn-select-bay-thumbnail" data-field="<?php echo esc_attr($thumbnail_field_id); ?>" data-preview="<?php echo esc_attr($thumbnail_preview_id); ?>">Choose image</button>
+                            <button type="button" class="button-link ttn-clear-bay-thumbnail" data-field="<?php echo esc_attr($thumbnail_field_id); ?>" data-preview="<?php echo esc_attr($thumbnail_preview_id); ?>">Remove</button>
+                        </td>
                     </tr>
                 <?php endforeach; ?>
                 <tr>
@@ -963,6 +987,7 @@ function ttn_booking_bays_admin_page() {
                     <td><select name="new_bay_type"><?php foreach ($types as $value => $label) : ?><option value="<?php echo esc_attr($value); ?>"><?php echo esc_html($label); ?></option><?php endforeach; ?></select></td>
                     <td><select name="new_bay_location"><?php foreach ($locations as $value => $label) : ?><option value="<?php echo esc_attr($value); ?>"><?php echo esc_html($label); ?></option><?php endforeach; ?></select></td>
                     <td><label><input type="checkbox" name="new_bay_premium" value="1"> Premium price</label></td>
+                    <td><span class="description">Save the new bay first, then choose its thumbnail.</span></td>
                 </tr>
                 </tbody>
             </table>
@@ -974,6 +999,28 @@ function ttn_booking_bays_admin_page() {
             <p><button type="submit" class="button button-primary">Save Bay Settings</button></p>
         </form>
     </div>
+    <script>
+    jQuery(function ($) {
+        $(document).on('click', '.ttn-select-bay-thumbnail', function (event) {
+            event.preventDefault();
+            const button = $(this);
+            const frame = wp.media({ title: 'Choose bay thumbnail', button: { text: 'Use this image' }, multiple: false, library: { type: 'image' } });
+            frame.on('select', function () {
+                const image = frame.state().get('selection').first().toJSON();
+                const previewUrl = image.sizes && image.sizes.thumbnail ? image.sizes.thumbnail.url : image.url;
+                $('#' + button.data('field')).val(image.id);
+                $('#' + button.data('preview')).attr('src', previewUrl).prop('hidden', false);
+            });
+            frame.open();
+        });
+        $(document).on('click', '.ttn-clear-bay-thumbnail', function (event) {
+            event.preventDefault();
+            const button = $(this);
+            $('#' + button.data('field')).val('0');
+            $('#' + button.data('preview')).attr('src', '').prop('hidden', true);
+        });
+    });
+    </script>
     <?php
 }
 
@@ -1781,6 +1828,10 @@ function ttn_booking_shortcode() {
 
                     <?php if ($confirmed_booking) : ?>
                         <div class="success-booking-summary" style="margin: 18px 0; padding: 18px 20px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-soft); border-radius: 14px;">
+                            <?php $confirmed_bay_image = ttn_booking_get_bay_thumbnail_url($confirmed_booking['bay'], 'large'); ?>
+                            <?php if ($confirmed_bay_image) : ?>
+                                <img class="success-booking-bay-image" src="<?php echo esc_url($confirmed_bay_image); ?>" alt="<?php echo esc_attr($confirmed_booking['bay']); ?> bay">
+                            <?php endif; ?>
                             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid var(--border-soft); padding-bottom: 8px;">
                                 <strong style="font-size: 1.15rem; color: var(--primary);">Booking Ref: <?php echo esc_html($confirmed_booking['reference']); ?></strong>
                                 <span style="font-size: 0.85rem; color: var(--muted);"><?php echo esc_html($confirmed_booking['bay']); ?></span>
@@ -1876,8 +1927,10 @@ function ttn_booking_shortcode() {
             <div class="bay-selector" id="ttn-bay-selector">
                 <?php foreach ($bays as $bay_key => $bay_label) : ?>
                     <?php $bay_config = ttn_booking_get_bay_config($bay_key); ?>
-                    <label class="bay-pill" data-bay-type="<?php echo esc_attr($bay_config['type'] ?? 'right-handed'); ?>">
+                        <?php $bay_thumbnail = ttn_booking_get_bay_thumbnail_url($bay_key, 'medium'); ?>
+                        <label class="bay-pill<?php echo $bay_thumbnail ? ' has-bay-thumbnail' : ''; ?>" data-bay-type="<?php echo esc_attr($bay_config['type'] ?? 'right-handed'); ?>">
                         <input type="radio" name="bay" value="<?php echo esc_attr($bay_label); ?>" data-bay-key="<?php echo esc_attr($bay_key); ?>" data-bay-type="<?php echo esc_attr($bay_config['type'] ?? 'right-handed'); ?>" data-price="<?php echo esc_attr(ttn_booking_get_hourly_price($bay_key)); ?>" />
+                            <?php if ($bay_thumbnail) : ?><img class="bay-pill-thumbnail" src="<?php echo esc_url($bay_thumbnail); ?>" alt=""><?php endif; ?>
                         <span><?php echo esc_html($bay_label); ?></span>
                     </label>
                 <?php endforeach; ?>

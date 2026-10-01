@@ -62,7 +62,8 @@ $booking_images = array(
                 && ttn_booking_is_within_self_service_window($selected_booking['date'], $selected_booking['time']);
             $payment = $selected_booking['payment'] ?? array();
             $price = (int) $selected_booking['duration'] * (function_exists('ttn_booking_get_hourly_price') ? ttn_booking_get_hourly_price($selected_booking['bay']) : 50);
-            $detail_image = $booking_images[strtolower($selected_booking['bay'])] ?? reset($booking_images);
+            $detail_image = function_exists('ttn_booking_get_bay_thumbnail_url') ? ttn_booking_get_bay_thumbnail_url($selected_booking['bay'], 'large') : '';
+            $detail_image = $detail_image ?: ($booking_images[strtolower($selected_booking['bay'])] ?? reset($booking_images));
             ?>
             <a class="member-bookings-back" href="<?php echo esc_url(add_query_arg('view', $view, $base_url)); ?>">&larr; <?php echo $view === 'past' ? 'Past bookings' : 'Upcoming bookings'; ?></a>
             <div class="member-booking-detail-heading">
@@ -119,7 +120,8 @@ $booking_images = array(
                 <?php foreach ($visible_bookings as $booking) : ?>
                     <?php $cancelled = ($booking['status'] ?? '') === 'cancelled'; ?>
                     <a class="member-booking-row" href="<?php echo esc_url(add_query_arg(array('booking_id' => (int) $booking['ID'], 'view' => $view), $base_url)); ?>">
-                        <?php $booking_image = $booking_images[strtolower($booking['bay'])] ?? reset($booking_images); ?>
+                        <?php $booking_image = function_exists('ttn_booking_get_bay_thumbnail_url') ? ttn_booking_get_bay_thumbnail_url($booking['bay'], 'medium') : ''; ?>
+                        <?php $booking_image = $booking_image ?: ($booking_images[strtolower($booking['bay'])] ?? reset($booking_images)); ?>
                         <span class="member-booking-image" style="background-image: linear-gradient(0deg, rgba(0, 0, 0, .12), rgba(0, 0, 0, .02)), url('<?php echo esc_url($booking_image); ?>');" aria-hidden="true"></span>
                         <div class="member-booking-main">
                             <strong><?php echo esc_html($booking['bay']); ?> Bay</strong>
