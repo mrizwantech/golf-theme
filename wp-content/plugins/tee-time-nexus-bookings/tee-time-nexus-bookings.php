@@ -1916,7 +1916,7 @@ function ttn_booking_shortcode() {
             </div>
         <?php endif; ?>
 
-        <p class="booking-note">Select your bay type, choose a bay, pick your date and time, then proceed to payment. An account will be automatically set up for you upon booking.</p>
+        <p class="booking-note">Reserve your bay and enjoy an immersive indoor golf experience.</p>
 
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data" id="ttn-checkout-form">
             <input type="hidden" name="action" value="ttn_booking_start_woocommerce_checkout">

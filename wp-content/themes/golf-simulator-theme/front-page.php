@@ -131,21 +131,47 @@
         <div class="container">
             <h2 class="section-title">WHERE GOLF MEETS TECHNOLOGY</h2>
             <h3 class="section-subtitle">Experience the ultimate fusion of cutting-edge golf technology and immersive gameplay.</h3>
+            <?php
+            $feature_1_media = get_theme_mod('golf_simulator_feature_1_media', '');
+            $feature_2_media = get_theme_mod('golf_simulator_feature_2_media', '');
+            $feature_3_media = get_theme_mod('golf_simulator_feature_3_media', '');
+
+            $render_card_media = static function ($media_url, $alt_text) {
+                if (empty($media_url)) {
+                    return '';
+                }
+                $is_video = (bool) preg_match('/\.(mp4|webm|ogg)$/i', $media_url);
+                if ($is_video) {
+                    return '<div class="card-media"><video src="' . esc_url($media_url) . '" autoplay loop muted playsinline></video></div>';
+                }
+                return '<div class="card-media"><img src="' . esc_url($media_url) . '" alt="' . esc_attr($alt_text) . '" loading="lazy" /></div>';
+            };
+            ?>
             <div class="grid">
-                <div class="card">
-                    <div class="kicker">Auto Tee</div>
-                    <h3>Professional simulator setup</h3>
-                    <p>High-speed launch tracking and immersive course play make every session feel like the real thing.</p>
+                <div class="card has-media">
+                    <?php echo $render_card_media($feature_1_media, 'Auto Tee Simulator Setup'); ?>
+                    <div class="card-body">
+                        <div class="kicker">Auto Tee</div>
+                       
+                        <p>The ball automatically tees up after every shot. Spend less time resetting and more time focused on your game, with a smooth and consistent tee-up experience from shot to shot.
+</p>
+                    </div>
                 </div>
-                <div class="card">
-                    <div class="kicker">Events</div>
-                    <h3>Private leagues & parties</h3>
-                    <p>Perfect for corporate nights, birthdays, and friendly competitions with a premium atmosphere.</p>
+                <div class="card has-media">
+                    <?php echo $render_card_media($feature_2_media, 'Private Leagues & Events'); ?>
+                    <div class="card-body">
+                        <div class="kicker">Dynamic Swing Plate</div>
+                        
+                        <p>Experience a more realistic golf swing with our dynamic swing plate. The platform moves with the terrain and shot conditions, simulating uneven lies such as uphill, downhill, and sidehill shots. Adjust your stance naturally and experience a more challenging, true-to-life round of golf.</p>
+                    </div>
                 </div>
-                <div class="card">
-                    <div class="kicker">Growth</div>
-                    <h3>Marketing-ready brand image</h3>
-                    <p>Built to attract local customers and present your business professionally online.</p>
+                <div class="card has-media">
+                    <?php echo $render_card_media($feature_3_media, 'Technology & Growth'); ?>
+                    <div class="card-body">
+                        <div class="kicker">High-Speed Swing Sensors</div>
+                       
+                        <p>Advanced high-speed sensors capture every shot with precision, tracking key ball and club data in real time. Get fast, accurate feedback on your swing, ball flight, speed, launch, and shot performance to help you understand and improve your game.</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -168,16 +194,7 @@
         </div>
     </section>
 
-    <section class="section" id="contact">
-        <div class="container">
-            <div class="card">
-                <div class="kicker">Book now</div>
-                <h2 class="section-title">Let’s grow Tee Time Nexus with your next customer</h2>
-                <p>Use this section for your booking form, phone number, email, or schedule link. This is a strong homepage area for a new golf simulator business.</p>
-                <p><strong>Business:</strong> Tee Time Nexus<br><strong>Legal Entity:</strong> Far Nexes LLC<br><strong>Phone:</strong> (555) 123-4567<br><strong>Email:</strong> hello@teetimenexus.com</p>
-            </div>
-        </div>
-    </section>
+   
 </main>
 <?php endif; ?>
 <?php get_footer(); ?>

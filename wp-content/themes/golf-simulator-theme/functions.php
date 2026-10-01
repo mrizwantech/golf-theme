@@ -401,6 +401,30 @@ function golf_simulator_theme_customize_register($wp_customize) {
             'type' => 'text',
         ));
     }
+
+    // Feature Cards (Video / GIF / Image) Section
+    $wp_customize->add_section('golf_simulator_feature_cards_section', array(
+        'title'    => __('Homepage Feature Cards Media', 'golf-simulator-theme'),
+        'priority' => 35,
+    ));
+
+    $card_defaults = array(
+        1 => 'Auto Tee (Card 1)',
+        2 => 'Events (Card 2)',
+        3 => 'Growth (Card 3)',
+    );
+
+    foreach ($card_defaults as $card_num => $card_label) {
+        $wp_customize->add_setting('golf_simulator_feature_' . $card_num . '_media', array(
+            'default'           => '',
+            'sanitize_callback' => 'esc_url_raw',
+        ));
+        $wp_customize->add_control(new WP_Customize_Upload_Control($wp_customize, 'golf_simulator_feature_' . $card_num . '_media', array(
+            'label'       => $card_label . ' Video or GIF / Image',
+            'description' => __('Upload an MP4/WebM video or an animated GIF.', 'golf-simulator-theme'),
+            'section'     => 'golf_simulator_feature_cards_section',
+        )));
+    }
 }
 add_action('customize_register', 'golf_simulator_theme_customize_register');
 
