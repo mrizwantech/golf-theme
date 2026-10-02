@@ -1,4 +1,9 @@
 document.addEventListener('DOMContentLoaded', function () {
+    initHeroSlider();
+    initCardMediaHover();
+});
+
+function initHeroSlider() {
     var slider = document.querySelector('.hero-slider');
 
     if (!slider) {
@@ -83,4 +88,109 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
     restartAutoplay();
-});
+}
+
+function initCardMediaHover() {
+    var cards = document.querySelectorAll('.card.has-media');
+    if (!cards.length) {
+        return;
+    }
+
+    cards.forEach(function (card) {
+        var video = card.querySelector('video');
+        var gifImg = card.querySelector('img.hover-gif');
+
+        if (video) {
+            video.muted = true;
+            video.defaultMuted = true;
+            video.setAttribute('muted', '');
+            video.setAttribute('playsinline', '');
+            video.pause();
+
+            function playVideo() {
+                video.muted = true;
+                var promise = video.play();
+                if (promise !== undefined && typeof promise.catch === 'function') {
+                    promise.catch(function (err) {
+                        console.warn('Video play interrupted or blocked:', err);
+                    });
+                }
+            }
+
+            function pauseVideo() {
+                video.pause();
+            }
+
+            card.addEventListener('mouseenter', playVideo);
+            card.addEventListener('mouseleave', pauseVideo);
+            card.addEventListener('focusin', playVideo);
+            card.addEventListener('focusout', pauseVideo);
+
+            // Click to toggle play / pause explicitly
+            card.addEventListener('click', function (e) {
+                // If user clicks a link/button inside card, let default action happen
+                if (e.target.closest('a, button')) {
+                    return;
+                }
+                if (video.paused) {
+                    playVideo();
+                } else {
+                    pauseVideo();
+                }
+            });
+
+            card.addEventListener('touchstart', function (e) {
+                if (e.target.closest('a, button')) {
+                    return;
+                }
+                if (video.paused) {
+                    playVideo();
+                } else {
+                    pauseVideo();
+                }
+            }, { passive: true });
+        }
+
+        if (gifImg) {
+            function setupGifFreeze() {
+                if (card.querySelector('.gif-freeze-frame')) {
+                    return;
+                }
+                var canvas = document.createElement('canvas');
+                canvas.className = 'gif-freeze-frame';
+                canvas.width = gifImg.naturalWidth || gifImg.clientWidth || 640;
+                canvas.height = gifImg.naturalHeight || gifImg.clientHeight || 360;
+                var ctx = canvas.getContext('2d');
+                if (ctx) {
+                    try {
+                        ctx.drawImage(gifImg, 0, 0, canvas.width, canvas.height);
+                        gifImg.parentNode.insertBefore(canvas, gifImg.nextSibling);
+                    } catch (e) { }
+                }
+            }
+
+            if (gifImg.complete && gifImg.naturalWidth) {
+                setupGifFreeze();
+            } else {
+                gifImg.addEventListener('load', setupGifFreeze);
+            }
+
+            function playGif() {
+                var currentSrc = gifImg.src;
+                if (currentSrc) {
+                    gifImg.src = '';
+                    gifImg.src = currentSrc;
+                }
+            }
+
+            card.addEventListener('mouseenter', playGif);
+            card.addEventListener('focusin', playGif);
+            card.addEventListener('click', function (e) {
+                if (e.target.closest('a, button')) {
+                    return;
+                }
+                playGif();
+            });
+        }
+    });
+}

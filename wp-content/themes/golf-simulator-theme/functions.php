@@ -167,6 +167,7 @@ add_action('wp_head', 'golf_simulator_theme_render_local_business_schema', 2);
 function golf_simulator_theme_enqueue_assets() {
     $theme_version = wp_get_theme()->get('Version');
     $style_version = file_exists(get_stylesheet_directory() . '/style.css') ? filemtime(get_stylesheet_directory() . '/style.css') : $theme_version;
+    $slider_version = file_exists(get_stylesheet_directory() . '/assets/js/slider.js') ? filemtime(get_stylesheet_directory() . '/assets/js/slider.js') : $theme_version;
 
     wp_enqueue_style('golf-simulator-theme-style', get_stylesheet_uri(), array(), $style_version);
     if (is_front_page()) {
@@ -174,7 +175,7 @@ function golf_simulator_theme_enqueue_assets() {
             'golf-simulator-theme-slider',
             get_template_directory_uri() . '/assets/js/slider.js',
             array(),
-            $theme_version,
+            $slider_version,
             true
         );
     }
@@ -404,14 +405,17 @@ function golf_simulator_theme_customize_register($wp_customize) {
 
     // Feature Cards (Video / GIF / Image) Section
     $wp_customize->add_section('golf_simulator_feature_cards_section', array(
-        'title'    => __('Homepage Feature Cards Media', 'golf-simulator-theme'),
+        'title'    => __('Homepage Feature Cards Media & Content', 'golf-simulator-theme'),
         'priority' => 35,
     ));
 
     $card_defaults = array(
         1 => 'Auto Tee (Card 1)',
-        2 => 'Events (Card 2)',
-        3 => 'Growth (Card 3)',
+        2 => 'Dynamic Swing Plate (Card 2)',
+        3 => 'High-Speed Swing Sensors (Card 3)',
+        4 => 'Realistic Bunker Play (Card 4)',
+        5 => 'Precision Putting (Card 5)',
+        6 => 'Network Play (Card 6)',
     );
 
     foreach ($card_defaults as $card_num => $card_label) {
@@ -424,6 +428,26 @@ function golf_simulator_theme_customize_register($wp_customize) {
             'description' => __('Upload an MP4/WebM video or an animated GIF.', 'golf-simulator-theme'),
             'section'     => 'golf_simulator_feature_cards_section',
         )));
+
+        $wp_customize->add_setting('golf_simulator_feature_' . $card_num . '_title', array(
+            'default'           => '',
+            'sanitize_callback' => 'sanitize_text_field',
+        ));
+        $wp_customize->add_control('golf_simulator_feature_' . $card_num . '_title', array(
+            'label'       => $card_label . ' Title / Kicker',
+            'section'     => 'golf_simulator_feature_cards_section',
+            'type'        => 'text',
+        ));
+
+        $wp_customize->add_setting('golf_simulator_feature_' . $card_num . '_text', array(
+            'default'           => '',
+            'sanitize_callback' => 'sanitize_textarea_field',
+        ));
+        $wp_customize->add_control('golf_simulator_feature_' . $card_num . '_text', array(
+            'label'       => $card_label . ' Description',
+            'section'     => 'golf_simulator_feature_cards_section',
+            'type'        => 'textarea',
+        ));
     }
 }
 add_action('customize_register', 'golf_simulator_theme_customize_register');

@@ -1447,7 +1447,6 @@ function golf_simulator_theme_render_membership_packages() {
         ?>
         <article class="membership-card<?php echo $data['featured'] ? ' featured' : ''; ?>">
             <div class="membership-card-art membership-card-art-<?php echo esc_attr(sanitize_html_class($title_key)); ?>" style="background-image: linear-gradient(90deg, rgba(2, 13, 13, .94) 0%, rgba(2, 13, 13, .45) 72%, rgba(2, 13, 13, .1) 100%), url('<?php echo esc_url($card_image); ?>');">
-                <span class="tier-badge"><?php echo esc_html($data['title']); ?></span>
                 <?php if ($data['featured']) : ?><span class="membership-popular">MOST POPULAR</span><?php endif; ?>
                 <h3><?php echo esc_html($data['title']); ?></h3>
             </div>

@@ -135,66 +135,92 @@
             $feature_1_media = get_theme_mod('golf_simulator_feature_1_media', '');
             $feature_2_media = get_theme_mod('golf_simulator_feature_2_media', '');
             $feature_3_media = get_theme_mod('golf_simulator_feature_3_media', '');
+            $feature_4_media = get_theme_mod('golf_simulator_feature_4_media', '');
+            $feature_5_media = get_theme_mod('golf_simulator_feature_5_media', '');
+            $feature_6_media = get_theme_mod('golf_simulator_feature_6_media', '');
+
+            $feature_1_title = get_theme_mod('golf_simulator_feature_1_title', '') ?: 'Auto Tee';
+            $feature_1_text = get_theme_mod('golf_simulator_feature_1_text', '') ?: 'The ball automatically tees up after every shot. Spend less time resetting and more time focused on your game, with a smooth and consistent tee-up experience from shot to shot.';
+
+            $feature_2_title = get_theme_mod('golf_simulator_feature_2_title', '') ?: 'Dynamic Swing Plate';
+            $feature_2_text = get_theme_mod('golf_simulator_feature_2_text', '') ?: 'Experience a more realistic golf swing with our dynamic swing plate. The platform moves with the terrain and shot conditions, simulating uneven lies such as uphill, downhill, and sidehill shots. Adjust your stance naturally and experience a more challenging, true-to-life round of golf.';
+
+            $feature_3_title = get_theme_mod('golf_simulator_feature_3_title', '') ?: 'High-Speed Swing Sensors';
+            $feature_3_text = get_theme_mod('golf_simulator_feature_3_text', '') ?: 'Advanced high-speed sensors capture every shot with precision, tracking key ball and club data in real time. Get fast, accurate feedback on your swing, ball flight, speed, launch, and shot performance to help you understand and improve your game.';
+
+            $feature_4_title = get_theme_mod('golf_simulator_feature_4_title', '') ?: 'Realistic Bunker Play';
+            $feature_4_text = get_theme_mod('golf_simulator_feature_4_text', '') ?: 'Take your short game to the next level with realistic bunker conditions that recreate the feel of playing from the sand. Experience authentic shot response, changing ball flight, and the challenge of getting up and down.';
+
+            $feature_5_title = get_theme_mod('golf_simulator_feature_5_title', '') ?: 'Precision Putting';
+            $feature_5_text = get_theme_mod('golf_simulator_feature_5_text', '') ?: 'Dial in your putting with realistic green surfaces designed to replicate the feel of the course. Read the break, control your speed, and build confidence on every putt with accurate roll and natural ball response.';
+
+            $feature_6_title = get_theme_mod('golf_simulator_feature_6_title', '') ?: 'Network Play';
+            $feature_6_text = get_theme_mod('golf_simulator_feature_6_text', '') ?: 'Play together, compete, and enjoy a connected golf experience with friends and other players. Join the same round, track scores in real time, and experience the excitement of head-to-head competition across connected simulator bays.';
 
             $render_card_media = static function ($media_url, $alt_text) {
                 if (empty($media_url)) {
                     return '';
                 }
                 $is_video = (bool) preg_match('/\.(mp4|webm|ogg)$/i', $media_url);
+                $is_gif = (bool) preg_match('/\.gif(\?.*)?$/i', $media_url);
+                $play_badge = ($is_video || $is_gif)
+                    ? '<span class="card-media-badge" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>'
+                    : '';
+
                 if ($is_video) {
-                    return '<div class="card-media"><video src="' . esc_url($media_url) . '" autoplay loop muted playsinline></video></div>';
+                    return '<div class="card-media" data-media="video">' . $play_badge . '<video src="' . esc_url($media_url) . '" loop muted playsinline preload="metadata"></video></div>';
                 }
-                return '<div class="card-media"><img src="' . esc_url($media_url) . '" alt="' . esc_attr($alt_text) . '" loading="lazy" /></div>';
+                $img_class = $is_gif ? ' class="hover-gif"' : '';
+                return '<div class="card-media" data-media="' . ($is_gif ? 'gif' : 'image') . '">' . $play_badge . '<img src="' . esc_url($media_url) . '" alt="' . esc_attr($alt_text) . '" loading="lazy"' . $img_class . ' /></div>';
             };
             ?>
             <div class="grid">
-                <div class="card has-media">
-                    <?php echo $render_card_media($feature_1_media, 'Auto Tee Simulator Setup'); ?>
+                <div class="card has-media" tabindex="0">
+                    <?php echo $render_card_media($feature_1_media, $feature_1_title); ?>
                     <div class="card-body">
-                        <div class="kicker">Auto Tee</div>
-                       
-                        <p>The ball automatically tees up after every shot. Spend less time resetting and more time focused on your game, with a smooth and consistent tee-up experience from shot to shot.
-</p>
+                        <div class="kicker"><?php echo esc_html($feature_1_title); ?></div>
+                        <p><?php echo esc_html($feature_1_text); ?></p>
                     </div>
                 </div>
-                <div class="card has-media">
-                    <?php echo $render_card_media($feature_2_media, 'Private Leagues & Events'); ?>
+                <div class="card has-media" tabindex="0">
+                    <?php echo $render_card_media($feature_2_media, $feature_2_title); ?>
                     <div class="card-body">
-                        <div class="kicker">Dynamic Swing Plate</div>
-                        
-                        <p>Experience a more realistic golf swing with our dynamic swing plate. The platform moves with the terrain and shot conditions, simulating uneven lies such as uphill, downhill, and sidehill shots. Adjust your stance naturally and experience a more challenging, true-to-life round of golf.</p>
+                        <div class="kicker"><?php echo esc_html($feature_2_title); ?></div>
+                        <p><?php echo esc_html($feature_2_text); ?></p>
                     </div>
                 </div>
-                <div class="card has-media">
-                    <?php echo $render_card_media($feature_3_media, 'Technology & Growth'); ?>
+                <div class="card has-media" tabindex="0">
+                    <?php echo $render_card_media($feature_3_media, $feature_3_title); ?>
                     <div class="card-body">
-                        <div class="kicker">High-Speed Swing Sensors</div>
-                       
-                        <p>Advanced high-speed sensors capture every shot with precision, tracking key ball and club data in real time. Get fast, accurate feedback on your swing, ball flight, speed, launch, and shot performance to help you understand and improve your game.</p>
+                        <div class="kicker"><?php echo esc_html($feature_3_title); ?></div>
+                        <p><?php echo esc_html($feature_3_text); ?></p>
+                    </div>
+                </div>
+                <div class="card has-media" tabindex="0">
+                    <?php echo $render_card_media($feature_4_media, $feature_4_title); ?>
+                    <div class="card-body">
+                        <div class="kicker"><?php echo esc_html($feature_4_title); ?></div>
+                        <p><?php echo esc_html($feature_4_text); ?></p>
+                    </div>
+                </div>
+                <div class="card has-media" tabindex="0">
+                    <?php echo $render_card_media($feature_5_media, $feature_5_title); ?>
+                    <div class="card-body">
+                        <div class="kicker"><?php echo esc_html($feature_5_title); ?></div>
+                        <p><?php echo esc_html($feature_5_text); ?></p>
+                    </div>
+                </div>
+                <div class="card has-media" tabindex="0">
+                    <?php echo $render_card_media($feature_6_media, $feature_6_title); ?>
+                    <div class="card-body">
+                        <div class="kicker"><?php echo esc_html($feature_6_title); ?></div>
+                        <p><?php echo esc_html($feature_6_text); ?></p>
                     </div>
                 </div>
             </div>
         </div>
     </section>
 
-    <section class="section" id="packages">
-        <div class="container">
-            <h2 class="section-title">Pricing</h2>
-            <div class="grid">
-                <div class="card">
-                    <div class="kicker">Per Hour / Per Bay</div>
-                    <?php
-                    $front_hourly_price = function_exists('ttn_booking_get_hourly_price') ? ttn_booking_get_hourly_price() : (float) get_option('ttn_standard_hourly_price', 50);
-                    $formatted_front_price = (floor($front_hourly_price) == $front_hourly_price) ? number_format($front_hourly_price, 0) : number_format($front_hourly_price, 2);
-                    ?>
-                    <div class="price">$<?php echo esc_html($formatted_front_price); ?></div>
-                    <p>Hourly bay rental for golf simulator sessions, practice, and private play.</p>
-                </div>
-            </div>
-        </div>
-    </section>
-
-   
 </main>
 <?php endif; ?>
 <?php get_footer(); ?>
