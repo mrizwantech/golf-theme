@@ -2,7 +2,12 @@
     <div class="container footer-inner">
         <div>
             <strong>Tee Time Nexus</strong><br>
-            <span>DBA of Far Nexes LLC</span>
+            <span>DBA of Far Nexes LLC</span><br>
+            <span>Mooresville, North Carolina</span>
+        </div>
+        <div class="footer-location">
+            <a href="https://maps.app.goo.gl/Fu5JUodn9BqbYo7A8" target="_blank" rel="noopener noreferrer">2785 Charlotte Hwy, Suites 11 &amp; 12<br>Mooresville, NC 28117 <span aria-hidden="true">&#8599;</span></a>
+            <a href="tel:+19805033288">+1 (980) 503-3288</a>
         </div>
         <nav class="footer-social" aria-label="Tee Time Nexus social media">
             <span class="footer-social-label">Follow us</span>

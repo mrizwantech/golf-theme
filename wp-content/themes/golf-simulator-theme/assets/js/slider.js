@@ -1,7 +1,57 @@
 document.addEventListener('DOMContentLoaded', function () {
     initHeroSlider();
     initCardMediaHover();
+    initPagePrefetch();
 });
+
+function initPagePrefetch() {
+    var prefetchedUrls = new Set();
+
+    function prefetchLink(link) {
+        if (!link || link.target === '_blank' || link.hasAttribute('download')) {
+            return;
+        }
+
+        var destination;
+        try {
+            destination = new URL(link.href, window.location.href);
+        } catch (e) {
+            return;
+        }
+
+        if (destination.origin !== window.location.origin
+            || destination.pathname === window.location.pathname
+            || destination.search
+            || destination.hash
+            || destination.pathname.indexOf('/wp-admin/') === 0
+            || destination.pathname.indexOf('/wp-login.php') !== -1
+            || destination.pathname.indexOf('/admin-post.php') !== -1) {
+            return;
+        }
+
+        var url = destination.href;
+        if (prefetchedUrls.has(url)) {
+            return;
+        }
+        prefetchedUrls.add(url);
+
+        var hint = document.createElement('link');
+        hint.rel = 'prefetch';
+        hint.href = url;
+        document.head.appendChild(hint);
+    }
+
+    document.addEventListener('pointerover', function (event) {
+        if (event.pointerType !== 'mouse') {
+            return;
+        }
+        prefetchLink(event.target.closest('a[href]'));
+    }, { passive: true });
+
+    document.addEventListener('focusin', function (event) {
+        prefetchLink(event.target.closest('a[href]'));
+    });
+}
 
 function initHeroSlider() {
     var slider = document.querySelector('.hero-slider');
@@ -23,7 +73,16 @@ function initHeroSlider() {
     var autoplayMs = 5000;
     var timerId = null;
 
+    function loadSlideBackground(slide) {
+        var imageUrl = slide.getAttribute('data-background-image');
+        if (imageUrl) {
+            slide.style.backgroundImage = 'url("' + imageUrl.replace(/"/g, '\\"') + '")';
+            slide.removeAttribute('data-background-image');
+        }
+    }
+
     function setActiveSlide(index) {
+        loadSlideBackground(slides[index]);
         slides.forEach(function (slide, i) {
             slide.classList.toggle('active', i === index);
         });
@@ -109,6 +168,10 @@ function initCardMediaHover() {
 
             function playVideo() {
                 video.muted = true;
+                if (!video.getAttribute('src') && video.dataset.src) {
+                    video.setAttribute('src', video.dataset.src);
+                    video.load();
+                }
                 var promise = video.play();
                 if (promise !== undefined && typeof promise.catch === 'function') {
                     promise.catch(function (err) {

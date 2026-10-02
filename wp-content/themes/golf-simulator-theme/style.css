@@ -1203,6 +1203,178 @@ img {
     font-weight: 800;
 }
 
+.about-contact-details {
+    display: grid;
+    gap: 8px;
+    margin-top: 24px;
+    font-style: normal;
+}
+
+.about-contact-details a {
+    width: fit-content;
+    color: var(--muted);
+    line-height: 1.6;
+    text-decoration: underline;
+    text-decoration-color: rgba(var(--primary-rgb), .55);
+    text-underline-offset: 3px;
+}
+
+.about-contact-details a span,
+.footer-location a span {
+    color: var(--primary);
+}
+
+.hours-page {
+    min-height: 70vh;
+}
+
+.hours-hero {
+    padding-top: clamp(52px, 8vw, 92px);
+    padding-bottom: 44px;
+}
+
+.hours-hero h1 {
+    margin: 14px 0 12px;
+    color: var(--heading);
+    font-size: clamp(2.6rem, 5vw, 4rem);
+    line-height: 1.05;
+}
+
+.hours-hero>p {
+    max-width: 680px;
+    margin: 0;
+    color: var(--muted);
+    font-size: 1.08rem;
+    line-height: 1.7;
+}
+
+.hours-schedule-section {
+    padding: 18px 0 70px;
+    border-top: 1px solid var(--border-soft);
+    border-bottom: 1px solid var(--border-soft);
+    background: linear-gradient(110deg, rgba(var(--primary-rgb), .07), transparent 65%), var(--surface);
+}
+
+.hours-schedule-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+    padding: 34px 0;
+}
+
+.hours-schedule {
+    min-width: 0;
+    padding: 26px;
+    border: 1px solid var(--border-soft-strong);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, .18);
+}
+
+.hours-label {
+    color: var(--primary);
+    font-size: .75rem;
+    font-weight: 800;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+}
+
+.hours-schedule h2,
+.hours-member-access h2 {
+    margin: 10px 0;
+    color: var(--heading);
+    font-size: 1.45rem;
+}
+
+.hours-time {
+    margin: 18px 0 8px;
+    color: var(--heading);
+    font-size: clamp(1.5rem, 3vw, 2.2rem);
+    font-weight: 800;
+}
+
+.hours-time span {
+    color: var(--muted);
+    font-size: .9rem;
+    font-weight: 500;
+}
+
+.hours-note,
+.hours-member-access p {
+    margin: 0;
+    color: var(--muted);
+    line-height: 1.65;
+}
+
+.hours-member-access {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 22px;
+    padding: 26px 0 0;
+    border-top: 1px solid var(--border-soft-strong);
+}
+
+.hours-member-mark {
+    display: grid;
+    width: 76px;
+    height: 76px;
+    place-items: center;
+    border: 1px solid rgba(var(--primary-rgb), .55);
+    border-radius: 50%;
+    color: var(--primary);
+    font-weight: 900;
+}
+
+.hours-member-access h2 {
+    margin: 5px 0;
+}
+
+.hours-member-access .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+    white-space: nowrap;
+}
+
+.hours-booking-note {
+    padding-top: 30px;
+    padding-bottom: 44px;
+    color: var(--muted);
+}
+
+.hours-booking-note a {
+    color: var(--primary);
+    font-weight: 800;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+@media (max-width: 760px) {
+    .hours-schedule-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .hours-member-access {
+        grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .hours-member-access .btn {
+        grid-column: 2;
+        justify-self: start;
+    }
+}
+
+@media (max-width: 480px) {
+    .hours-member-access {
+        grid-template-columns: 1fr;
+        justify-items: start;
+    }
+
+    .hours-member-access .btn {
+        grid-column: 1;
+    }
+}
+
 .about-technology {
     padding-top: 86px;
     padding-bottom: 86px;
@@ -2443,6 +2615,22 @@ img {
 
 .footer-social a:hover,
 .footer-social a:focus-visible {
+    color: var(--primary);
+}
+
+.footer-location {
+    display: grid;
+    gap: 6px;
+    font-size: .84rem;
+    line-height: 1.5;
+}
+
+.footer-location a {
+    color: var(--footer-text);
+}
+
+.footer-location a:hover,
+.footer-location a:focus-visible {
     color: var(--primary);
 }
 

@@ -62,6 +62,28 @@ function golf_simulator_theme_ensure_about_page() {
 }
 add_action('init', 'golf_simulator_theme_ensure_about_page', 20);
 
+function golf_simulator_theme_ensure_hours_page() {
+    $page = get_page_by_path('hours');
+    if (!$page) {
+        $page_id = wp_insert_post(array(
+            'post_title' => 'Hours & Access',
+            'post_name' => 'hours',
+            'post_status' => 'publish',
+            'post_type' => 'page',
+            'post_content' => '',
+        ));
+        if (is_wp_error($page_id) || !$page_id) {
+            return;
+        }
+        $page = get_post($page_id);
+    }
+
+    if ($page && get_post_meta($page->ID, '_wp_page_template', true) !== 'page-hours.php') {
+        update_post_meta($page->ID, '_wp_page_template', 'page-hours.php');
+    }
+}
+add_action('init', 'golf_simulator_theme_ensure_hours_page', 20);
+
 function golf_simulator_theme_render_launch_screen() {
     if (!is_front_page() || is_user_logged_in()) {
         return;
@@ -165,17 +187,17 @@ function golf_simulator_theme_render_local_business_schema() {
         'name' => get_bloginfo('name'),
         'description' => golf_simulator_theme_get_seo_description(),
         'url' => home_url('/'),
-        'telephone' => '+1-555-123-4567',
+        'telephone' => '+1-980-503-3288',
         'email' => 'hello@teetimenexus.com',
         'address' => array(
             '@type' => 'PostalAddress',
-            'streetAddress' => '123 Golf Lane',
-            'addressLocality' => 'Your City',
-            'addressRegion' => 'TX',
-            'postalCode' => '75001',
+            'streetAddress' => '2785 Charlotte Hwy, Suites 11 & 12',
+            'addressLocality' => 'Mooresville',
+            'addressRegion' => 'NC',
+            'postalCode' => '28117',
             'addressCountry' => 'US',
         ),
-        'openingHours' => 'Mo-Su 10:00-22:00',
+        'openingHours' => array('Mo-Fr 10:00-21:00', 'Sa-Su 09:00-22:00'),
         'sameAs' => array(
             'https://www.facebook.com/teetimenexus',
             'https://www.instagram.com/teetimenexus/',
@@ -188,21 +210,34 @@ function golf_simulator_theme_render_local_business_schema() {
 }
 add_action('wp_head', 'golf_simulator_theme_render_local_business_schema', 2);
 
+function golf_simulator_theme_preload_front_page_hero() {
+    if (!is_front_page() || is_user_logged_in()) {
+        return;
+    }
+
+    $hero_image = get_theme_mod(
+        'golf_simulator_slide_1_image',
+        'https://images.unsplash.com/photo-1535131749006-b7f58c99034b?auto=format&fit=crop&w=1600&q=80'
+    );
+    if ($hero_image) {
+        echo '<link rel="preload" as="image" fetchpriority="high" href="' . esc_url($hero_image) . '">' . "\n";
+    }
+}
+add_action('wp_head', 'golf_simulator_theme_preload_front_page_hero', 1);
+
 function golf_simulator_theme_enqueue_assets() {
     $theme_version = wp_get_theme()->get('Version');
     $style_version = file_exists(get_stylesheet_directory() . '/style.css') ? filemtime(get_stylesheet_directory() . '/style.css') : $theme_version;
     $slider_version = file_exists(get_stylesheet_directory() . '/assets/js/slider.js') ? filemtime(get_stylesheet_directory() . '/assets/js/slider.js') : $theme_version;
 
     wp_enqueue_style('golf-simulator-theme-style', get_stylesheet_uri(), array(), $style_version);
-    if (is_front_page()) {
-        wp_enqueue_script(
-            'golf-simulator-theme-slider',
-            get_template_directory_uri() . '/assets/js/slider.js',
-            array(),
-            $slider_version,
-            true
-        );
-    }
+    wp_enqueue_script(
+        'golf-simulator-theme-slider',
+        get_template_directory_uri() . '/assets/js/slider.js',
+        array(),
+        $slider_version,
+        true
+    );
 }
 add_action('wp_enqueue_scripts', 'golf_simulator_theme_enqueue_assets');
 
@@ -486,7 +521,7 @@ function golf_simulator_theme_menu() {
             'fallback_cb'    => false,
         ));
     } else {
-        echo '<nav class="site-nav"><ul><li><a href="' . esc_url(home_url('/')) . '">Home</a></li><li><a href="' . esc_url(home_url('/about-us/')) . '">About</a></li><li><a href="' . esc_url(home_url('/contact/')) . '">Contact</a></li></ul></nav>';
+        echo '<nav class="site-nav"><ul><li><a href="' . esc_url(home_url('/')) . '">Home</a></li><li><a href="' . esc_url(home_url('/about-us/')) . '">About</a></li><li><a href="' . esc_url(home_url('/hours/')) . '">Hours</a></li><li><a href="' . esc_url(home_url('/contact/')) . '">Contact</a></li></ul></nav>';
     }
 }
 

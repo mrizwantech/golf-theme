@@ -112,6 +112,10 @@ get_header();
                 <p>We want Tee Time Nexus to be a place where golfers can practice, play, compete, and spend time together whenever it works for them. From your first swing to your next personal best, we’re here to make every visit count.</p>
                 <p>GOLFZON powers the simulator experience. Kisi helps provide secure, convenient member access. Tee Time Nexus brings it all together in one place.</p>
                 <p class="about-tagline">Premium indoor golf. Advanced technology. 24/7 access.</p>
+                <address class="about-contact-details">
+                    <a href="https://maps.app.goo.gl/Fu5JUodn9BqbYo7A8" target="_blank" rel="noopener noreferrer">2785 Charlotte Hwy, Suites 11 &amp; 12<br>Mooresville, NC 28117 <span aria-hidden="true">&#8599;</span></a>
+                    <a href="tel:+19805033288">+1 (980) 503-3288</a>
+                </address>
             </div>
             <a class="btn btn-primary" href="<?php echo esc_url(home_url('/book-a-bay/')); ?>">Plan Your Visit <span aria-hidden="true">&#8594;</span></a>
         </div>

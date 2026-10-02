@@ -109,7 +109,7 @@
             <button class="slider-arrow slider-prev" type="button" aria-label="Previous slide">&#10094;</button>
             <div class="slider-track">
                 <?php foreach ($slides as $index => $slide) : ?>
-                    <article class="hero-slide <?php echo $index === 0 ? 'active' : ''; ?>" style="background-image: url('<?php echo esc_url($slide['image']); ?>');">
+                    <article class="hero-slide <?php echo $index === 0 ? 'active' : ''; ?>" <?php if ($index === 0) : ?>style="background-image: url('<?php echo esc_url($slide['image']); ?>');"<?php else : ?>data-background-image="<?php echo esc_url($slide['image']); ?>"<?php endif; ?>>
                         <div class="hero-copy">
                             <span class="kicker"><?php echo esc_html($slide['kicker']); ?></span>
                             <h1><?php echo esc_html($slide['heading']); ?></h1>
@@ -168,7 +168,7 @@
                     : '';
 
                 if ($is_video) {
-                    return '<div class="card-media" data-media="video">' . $play_badge . '<video src="' . esc_url($media_url) . '" loop muted playsinline preload="metadata"></video></div>';
+                    return '<div class="card-media" data-media="video">' . $play_badge . '<video data-src="' . esc_url($media_url) . '" loop muted playsinline preload="none"></video></div>';
                 }
                 $img_class = $is_gif ? ' class="hover-gif"' : '';
                 return '<div class="card-media" data-media="' . ($is_gif ? 'gif' : 'image') . '">' . $play_badge . '<img src="' . esc_url($media_url) . '" alt="' . esc_attr($alt_text) . '" loading="lazy"' . $img_class . ' /></div>';
