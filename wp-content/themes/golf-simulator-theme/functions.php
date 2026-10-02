@@ -40,6 +40,28 @@ function golf_simulator_theme_ensure_my_bookings_page() {
 }
 add_action('init', 'golf_simulator_theme_ensure_my_bookings_page', 20);
 
+function golf_simulator_theme_ensure_about_page() {
+    $page = get_page_by_path('about-us');
+    if (!$page) {
+        $page_id = wp_insert_post(array(
+            'post_title' => 'About Us',
+            'post_name' => 'about-us',
+            'post_status' => 'publish',
+            'post_type' => 'page',
+            'post_content' => '',
+        ));
+        if (is_wp_error($page_id) || !$page_id) {
+            return;
+        }
+        $page = get_post($page_id);
+    }
+
+    if ($page && get_post_meta($page->ID, '_wp_page_template', true) !== 'page-about-us.php') {
+        update_post_meta($page->ID, '_wp_page_template', 'page-about-us.php');
+    }
+}
+add_action('init', 'golf_simulator_theme_ensure_about_page', 20);
+
 function golf_simulator_theme_render_launch_screen() {
     if (!is_front_page() || is_user_logged_in()) {
         return;
@@ -155,8 +177,10 @@ function golf_simulator_theme_render_local_business_schema() {
         ),
         'openingHours' => 'Mo-Su 10:00-22:00',
         'sameAs' => array(
-            'https://www.facebook.com/',
-            'https://www.instagram.com/',
+            'https://www.facebook.com/teetimenexus',
+            'https://www.instagram.com/teetimenexus/',
+            'https://www.tiktok.com/@teetimenexus',
+            'https://www.youtube.com/@TeeTimeNexus',
         ),
     );
 
