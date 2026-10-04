@@ -88,17 +88,17 @@
         ),
         array(
             'image' => get_theme_mod('golf_simulator_slide_2_image', 'https://images.unsplash.com/photo-1593111774278-0b6b02b7961c?auto=format&fit=crop&w=1600&q=80'),
-            'kicker' => get_theme_mod('golf_simulator_slide_2_kicker', 'Opening Soon'),
-            'heading' => get_theme_mod('golf_simulator_slide_2_heading', 'A premium golf simulator experience is on the way.'),
-            'text' => get_theme_mod('golf_simulator_slide_2_text', 'Follow our launch updates for the grand opening, bay availability, and special early access announcements.'),
+            'kicker' => get_theme_mod('golf_simulator_slide_2_kicker', 'Early Bird Memberships'),
+            'heading' => get_theme_mod('golf_simulator_slide_2_heading', 'Lock In Your Early Bird Rate'),
+            'text' => get_theme_mod('golf_simulator_slide_2_text', 'Be among the first to join Tee Time Nexus and become a Founding Member. Unlock exclusive Early Bird membership benefits before we open. Become a Founding Member — Early Bird memberships available.'),
             'button_text' => get_theme_mod('golf_simulator_slide_2_button_1', 'Follow Updates'),
             'button_url' => get_theme_mod('golf_simulator_slide_2_button_1_url', home_url('/')),
         ),
         array(
             'image' => get_theme_mod('golf_simulator_slide_3_image', 'https://images.unsplash.com/photo-1517466787929-bc90951d0974?auto=format&fit=crop&w=1600&q=80'),
-            'kicker' => get_theme_mod('golf_simulator_slide_3_kicker', 'Grand Opening'),
-            'heading' => get_theme_mod('golf_simulator_slide_3_heading', 'TBD — we will announce the launch date soon.'),
-            'text' => get_theme_mod('golf_simulator_slide_3_text', 'Stay connected for the official opening announcement, booking launch, and member access details.'),
+            'kicker' => get_theme_mod('golf_simulator_slide_3_kicker', 'NEXT-LEVEL INDOOR GOLF'),
+            'heading' => get_theme_mod('golf_simulator_slide_3_heading', 'Technology That Makes Every Shot Feel Real.'),
+            'text' => get_theme_mod('golf_simulator_slide_3_text', 'Experience advanced golf simulation with realistic course conditions designed for a more immersive indoor golf experience.'),
             'button_text' => get_theme_mod('golf_simulator_slide_3_button_1', 'Watch for Launch'),
             'button_url' => get_theme_mod('golf_simulator_slide_3_button_1_url', home_url('/')),
         ),
@@ -111,8 +111,8 @@
                 <?php foreach ($slides as $index => $slide) : ?>
                     <article class="hero-slide <?php echo $index === 0 ? 'active' : ''; ?>" <?php if ($index === 0) : ?>style="background-image: url('<?php echo esc_url($slide['image']); ?>');"<?php else : ?>data-background-image="<?php echo esc_url($slide['image']); ?>"<?php endif; ?>>
                         <div class="hero-copy">
-                            <span class="kicker"><?php echo esc_html($slide['kicker']); ?></span>
-                            <h1><?php echo esc_html($slide['heading']); ?></h1>
+                            <h1 class="kicker"><?php echo esc_html($slide['kicker']); ?></h1>
+                            <h3><?php echo esc_html($slide['heading']); ?></h3>
                             <p><?php echo esc_html($slide['text']); ?></p>
                             <div class="hero-actions hero-actions-lg">
                                 <a class="btn btn-primary btn-hero" href="<?php echo esc_url(home_url('/membership/')); ?>">Become a Member</a>

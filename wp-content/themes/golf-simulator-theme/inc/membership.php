@@ -508,7 +508,7 @@ function golf_simulator_theme_register_membership_package_post_type() {
         'show_ui' => true,
         'show_in_menu' => false,
         'menu_icon' => 'dashicons-groups',
-        'supports' => array('title'),
+        'supports' => array('title', 'thumbnail'),
         'has_archive' => false,
         'rewrite' => array('slug' => 'membership-package'),
         'show_in_rest' => false,
@@ -689,6 +689,7 @@ function golf_simulator_theme_membership_package_settings_page() {
     <div class="wrap membership-package-settings-wrapper">
         <h2><?php esc_html_e('Membership Package Settings', 'golf-simulator-theme'); ?></h2>
         <p><?php esc_html_e('These default values are used whenever a package is restored or newly created. You can edit them here and save the changes once.', 'golf-simulator-theme'); ?></p>
+        <p><?php esc_html_e('To set a separate card thumbnail for each package, edit it under Manage Packages and choose a Featured Image.', 'golf-simulator-theme'); ?></p>
 
         <div class="membership-package-admin-actions" style="margin: 0 0 20px;">
             <a href="<?php echo esc_url(admin_url('post-new.php?post_type=membership_package')); ?>" class="button button-primary">
@@ -929,22 +930,6 @@ function golf_simulator_theme_ensure_default_membership_packages() {
     }
 
     $defaults = golf_simulator_theme_get_default_membership_packages();
-
-    $existing_posts = get_posts(array(
-        'post_type' => 'membership_package',
-        'post_status' => 'any',
-        'posts_per_page' => -1,
-        'orderby' => 'title',
-        'order' => 'ASC',
-    ));
-
-    $known_titles = array_keys($defaults);
-
-    foreach ($existing_posts as $existing_post) {
-        if (!in_array($existing_post->post_title, $known_titles, true)) {
-            wp_delete_post($existing_post->ID, true);
-        }
-    }
 
     foreach ($defaults as $package) {
         $package_query = get_posts(array(
@@ -1429,24 +1414,22 @@ function golf_simulator_theme_render_membership_packages() {
         return '<p>No membership packages available yet.</p>';
     }
 
-    $card_images = array(
-        get_theme_mod('golf_simulator_slide_1_image', 'https://images.unsplash.com/photo-1535131749006-b7f58c99034b?auto=format&fit=crop&w=1200&q=80'),
-        get_theme_mod('golf_simulator_slide_3_image', 'https://images.unsplash.com/photo-1517466787929-bc90951d0974?auto=format&fit=crop&w=1200&q=80'),
-        get_theme_mod('golf_simulator_slide_2_image', 'https://images.unsplash.com/photo-1593111774278-0b6b02b7961c?auto=format&fit=crop&w=1200&q=80'),
-    );
-
     ob_start();
     ?>
     <div class="membership-grid">
-    <?php foreach ($packages as $index => $package) : ?>
+    <?php foreach ($packages as $package) : ?>
         <?php
         $data = golf_simulator_theme_get_membership_package_data($package->ID);
-        $card_image = $card_images[$index % count($card_images)];
+        $card_image = get_the_post_thumbnail_url($package->ID, 'large');
+        $card_background = 'linear-gradient(90deg, rgba(2, 13, 13, .94) 0%, rgba(2, 13, 13, .45) 72%, rgba(2, 13, 13, .1) 100%)';
+        if ($card_image) {
+            $card_background .= ', url("' . esc_url_raw($card_image) . '")';
+        }
         $title_key = strtolower($data['title']);
         $button_label = sprintf("LET'S %s", strtoupper($data['title']));
         ?>
         <article class="membership-card<?php echo $data['featured'] ? ' featured' : ''; ?>">
-            <div class="membership-card-art membership-card-art-<?php echo esc_attr(sanitize_html_class($title_key)); ?>" style="background-image: linear-gradient(90deg, rgba(2, 13, 13, .94) 0%, rgba(2, 13, 13, .45) 72%, rgba(2, 13, 13, .1) 100%), url('<?php echo esc_url($card_image); ?>');">
+            <div class="membership-card-art membership-card-art-<?php echo esc_attr(sanitize_html_class($title_key)); ?>" style="background-image: <?php echo esc_attr($card_background); ?>;">
                 <?php if ($data['featured']) : ?><span class="membership-popular">MOST POPULAR</span><?php endif; ?>
                 <h3><?php echo esc_html($data['title']); ?></h3>
             </div>

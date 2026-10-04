@@ -423,7 +423,8 @@ img {
 }
 
 .hero h1,
-.hero-copy h1 {
+.hero-copy h1,
+.hero-copy h3 {
     font-size: clamp(2rem, 2.6vw, 3.2rem);
     line-height: 0.96;
     margin: 0 0 18px;
@@ -457,8 +458,9 @@ img {
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.26);
     color: var(--white);
-    width: 44px;
-    height: 44px;
+    font-size: 12px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
     cursor: pointer;
     backdrop-filter: blur(8px);
@@ -1017,8 +1019,17 @@ img {
     padding-bottom: clamp(56px, 8vw, 100px);
 }
 
+.about-hero-text-only {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 1000px;
+}
+
 .about-hero-copy {
     max-width: 620px;
+}
+
+.about-hero-text-only .about-hero-copy {
+    max-width: 800px;
 }
 
 .about-eyebrow {
@@ -1257,9 +1268,11 @@ img {
 
 .hours-schedule-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: 18px;
+    max-width: 760px;
     padding: 34px 0;
+    margin: 0 auto;
 }
 
 .hours-schedule {
@@ -1278,11 +1291,25 @@ img {
     text-transform: uppercase;
 }
 
-.hours-schedule h2,
-.hours-member-access h2 {
+.hours-schedule h2 {
     margin: 10px 0;
     color: var(--heading);
     font-size: 1.45rem;
+}
+
+.hours-schedule .hours-schedule-title {
+    margin: 0;
+    color: var(--primary);
+    font-size: 3rem;
+    font-weight: 800;
+    letter-spacing: 0;
+    line-height: 1.1;
+}
+
+@media (max-width: 640px) {
+    .hours-schedule .hours-schedule-title {
+        font-size: 2.4rem;
+    }
 }
 
 .hours-time {
@@ -1299,19 +1326,16 @@ img {
 }
 
 .hours-note,
-.hours-member-access p {
+.hours-member-schedule p {
     margin: 0;
     color: var(--muted);
     line-height: 1.65;
 }
 
-.hours-member-access {
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 22px;
-    padding: 26px 0 0;
-    border-top: 1px solid var(--border-soft-strong);
+.hours-member-schedule {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
 }
 
 .hours-member-mark {
@@ -1325,53 +1349,18 @@ img {
     font-weight: 900;
 }
 
-.hours-member-access h2 {
-    margin: 5px 0;
+.hours-member-schedule .btn {
+    margin-top: 18px;
 }
 
-.hours-member-access .btn {
+.hours-public-schedule .btn {
     display: inline-flex;
-    align-items: center;
-    gap: 12px;
-    white-space: nowrap;
-}
-
-.hours-booking-note {
-    padding-top: 30px;
-    padding-bottom: 44px;
-    color: var(--muted);
-}
-
-.hours-booking-note a {
-    color: var(--primary);
-    font-weight: 800;
-    text-decoration: underline;
-    text-underline-offset: 3px;
+    margin-top: 18px;
 }
 
 @media (max-width: 760px) {
     .hours-schedule-grid {
         grid-template-columns: 1fr;
-    }
-
-    .hours-member-access {
-        grid-template-columns: auto minmax(0, 1fr);
-    }
-
-    .hours-member-access .btn {
-        grid-column: 2;
-        justify-self: start;
-    }
-}
-
-@media (max-width: 480px) {
-    .hours-member-access {
-        grid-template-columns: 1fr;
-        justify-items: start;
-    }
-
-    .hours-member-access .btn {
-        grid-column: 1;
     }
 }
 
@@ -1398,7 +1387,44 @@ img {
     border-top: 1px solid var(--border-soft-strong);
 }
 
+.golf-tech-feature-tabs {
+    position: sticky;
+    top: 82px;
+    z-index: 20;
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    margin: 0 0 28px;
+    padding: 8px 0 0;
+    border-bottom: 1px solid var(--border-soft-strong);
+    background: var(--bg);
+    scrollbar-width: thin;
+}
+
+.golf-tech-feature-tabs a {
+    flex: 0 0 auto;
+    padding: 12px 14px;
+    border-bottom: 3px solid transparent;
+    color: var(--muted);
+    font-size: .9rem;
+    font-weight: 700;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.golf-tech-feature-tabs a:hover,
+.golf-tech-feature-tabs a:focus-visible {
+    border-bottom-color: var(--primary);
+    color: var(--heading);
+}
+
+.golf-tech-feature-tabs a:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
+}
+
 .about-feature {
+    scroll-margin-top: 190px;
     display: grid;
     grid-template-columns: 48px minmax(0, 1fr);
     gap: 18px;
@@ -1495,6 +1521,10 @@ img {
 }
 
 @media (max-width: 800px) {
+
+    .golf-tech-feature-tabs {
+        top: 165px;
+    }
 
     .about-hero,
     .about-section-heading {
@@ -1795,7 +1825,11 @@ img {
 
 .membership-page-shell .section-heading-center .kicker {
     color: var(--primary);
-    letter-spacing: .28em;
+    display: block;
+    font-size: 3rem;
+    font-weight: 800;
+    letter-spacing: 0;
+    line-height: 1.1;
 }
 
 .membership-page-shell .section-heading-center .section-title {
@@ -1809,6 +1843,12 @@ img {
     margin: 0 auto 28px;
     color: var(--muted);
     font-size: 1rem;
+}
+
+@media (max-width: 640px) {
+    .membership-page-shell .section-heading-center .kicker {
+        font-size: 2.4rem;
+    }
 }
 
 .membership-grid {

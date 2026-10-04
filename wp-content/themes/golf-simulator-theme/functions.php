@@ -62,6 +62,28 @@ function golf_simulator_theme_ensure_about_page() {
 }
 add_action('init', 'golf_simulator_theme_ensure_about_page', 20);
 
+function golf_simulator_theme_ensure_golf_technology_page() {
+    $page = get_page_by_path('golf-technology');
+    if (!$page) {
+        $page_id = wp_insert_post(array(
+            'post_title' => 'Golf Technology',
+            'post_name' => 'golf-technology',
+            'post_status' => 'publish',
+            'post_type' => 'page',
+            'post_content' => '',
+        ));
+        if (is_wp_error($page_id) || !$page_id) {
+            return;
+        }
+        $page = get_post($page_id);
+    }
+
+    if ($page && get_post_meta($page->ID, '_wp_page_template', true) !== 'page-golf-technology.php') {
+        update_post_meta($page->ID, '_wp_page_template', 'page-golf-technology.php');
+    }
+}
+add_action('init', 'golf_simulator_theme_ensure_golf_technology_page', 20);
+
 function golf_simulator_theme_ensure_hours_page() {
     $page = get_page_by_path('hours');
     if (!$page) {
@@ -168,7 +190,8 @@ function golf_simulator_theme_get_seo_description() {
         $post = get_post();
         if ($post) {
             $page_descriptions = array(
-                'about-us' => 'Meet Tee Time Nexus, a locally owned Mooresville indoor golf destination powered by GOLFZON TwoVision NX, advanced shot tracking, and 24/7 member access.',
+                'about-us' => 'Meet Tee Time Nexus, a locally owned indoor golf destination in Mooresville, North Carolina, built for year-round play, practice, and time with friends.',
+                'golf-technology' => 'Explore GOLFZON TwoVision NX golf technology at Tee Time Nexus, including its moving swing plate, multi-surface play, precision putting, and shot tracking.',
                 'hours' => 'Find Tee Time Nexus weekday and weekend hours in Mooresville, NC, plus details about secure 24/7 facility access for members.',
                 'contact' => 'Contact Tee Time Nexus in Mooresville, NC about bookings, memberships, or visiting. Call, email, or send our team a message.',
                 'book-a-bay' => 'Book an indoor golf simulator bay at Tee Time Nexus in Mooresville, NC. Choose your bay, date, duration, and available tee time.',
@@ -203,6 +226,7 @@ function golf_simulator_theme_get_seo_title() {
         $post = get_post();
         $page_titles = array(
             'about-us' => 'About Tee Time Nexus | Indoor Golf in Mooresville, NC',
+            'golf-technology' => 'Golf Technology | GOLFZON TwoVision NX | ' . $site_name,
             'hours' => 'Hours & 24/7 Member Access | ' . $site_name,
             'contact' => 'Contact Tee Time Nexus | ' . $site_name,
             'book-a-bay' => 'Book an Indoor Golf Simulator | ' . $site_name,
@@ -481,9 +505,9 @@ function golf_simulator_theme_customize_register($wp_customize) {
         2 => array(
             'label' => __('Slide 2', 'golf-simulator-theme'),
             'default_image' => 'https://images.unsplash.com/photo-1593111774278-0b6b02b7961c?auto=format&fit=crop&w=1600&q=80',
-            'default_kicker' => 'Practice. Play. Perform.',
-            'default_heading' => 'Train smarter with high-performance simulator sessions.',
-            'default_text' => 'Use Tee Time Nexus for coaching, private play, and feature-packed bay rentals that keep every visit exciting.',
+            'default_kicker' => 'Early Bird Memberships',
+            'default_heading' => 'Lock In Your Early Bird Rate',
+            'default_text' => 'Be among the first to join Tee Time Nexus and become a Founding Member. Unlock exclusive Early Bird membership benefits before we open. Become a Founding Member — Early Bird memberships available.',
             'default_button_1' => 'Explore Services',
             'default_button_1_url' => '#services',
             'default_button_2' => 'Reserve a Bay',
@@ -492,9 +516,9 @@ function golf_simulator_theme_customize_register($wp_customize) {
         3 => array(
             'label' => __('Slide 3', 'golf-simulator-theme'),
             'default_image' => 'https://images.unsplash.com/photo-1517466787929-bc90951d0974?auto=format&fit=crop&w=1600&q=80',
-            'default_kicker' => 'Book Your Next Session',
-            'default_heading' => 'Built for new customers, leagues, and premium events.',
-            'default_text' => 'Launch your local golf simulator business with a polished landing page that highlights fast bookings and simple pricing.',
+            'default_kicker' => 'NEXT-LEVEL INDOOR GOLF',
+            'default_heading' => 'Technology That Makes Every Shot Feel Real.',
+            'default_text' => 'Experience advanced golf simulation with realistic course conditions designed for a more immersive indoor golf experience.',
             'default_button_1' => 'See Pricing',
             'default_button_1_url' => '#packages',
             'default_button_2' => 'Contact Us',
@@ -643,7 +667,7 @@ function golf_simulator_theme_menu() {
             'fallback_cb'    => false,
         ));
     } else {
-        echo '<nav class="site-nav"><ul><li><a href="' . esc_url(home_url('/')) . '">Home</a></li><li><a href="' . esc_url(home_url('/about-us/')) . '">About</a></li><li><a href="' . esc_url(home_url('/hours/')) . '">Hours</a></li><li><a href="' . esc_url(home_url('/contact/')) . '">Contact</a></li></ul></nav>';
+        echo '<nav class="site-nav"><ul><li><a href="' . esc_url(home_url('/')) . '">Home</a></li><li><a href="' . esc_url(home_url('/about-us/')) . '">About</a></li><li><a href="' . esc_url(home_url('/golf-technology/')) . '">Golf Technology</a></li><li><a href="' . esc_url(home_url('/hours/')) . '">Hours</a></li><li><a href="' . esc_url(home_url('/contact/')) . '">Contact</a></li></ul></nav>';
     }
 }
 

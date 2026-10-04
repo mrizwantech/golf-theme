@@ -338,12 +338,12 @@ function ttn_booking_email_template_page() {
     <?php
 }
 
-// ===== SECURE ID DOCUMENT & SIGNATURE STORAGE =====
+// ===== SECURE BOOKING DOCUMENT STORAGE =====
 
 /**
- * Directory (outside direct web access) where uploaded ID documents and signature
- * images are stored. Protected by .htaccess (Apache) and only ever served through
- * ttn_booking_serve_secure_document(), which is capability + nonce gated.
+ * Directory (outside direct web access) where signature images are stored.
+ * Protected by .htaccess and served through the capability- and nonce-gated
+ * ttn_booking_serve_secure_document() handler.
  */
 function ttn_booking_get_secure_upload_dir() {
     $upload_dir = wp_upload_dir();
@@ -367,7 +367,7 @@ function ttn_booking_get_secure_upload_dir() {
 }
 
 /**
- * Deletes ID/signature uploads that were never attached to a paid booking (e.g. the
+ * Deletes signature uploads that were never attached to a paid booking (e.g. the
  * customer uploaded/signed but abandoned checkout). Only removes files older than 48
  * hours so an in-progress checkout is never touched.
  */
@@ -382,7 +382,7 @@ function ttn_booking_cleanup_orphaned_secure_documents() {
 
     $referenced = $wpdb->get_col(
         "SELECT DISTINCT meta_value FROM {$wpdb->postmeta}
-         WHERE meta_key IN ('ttn_booking_id_document_file', 'ttn_booking_signature_file')
+         WHERE meta_key = 'ttn_booking_signature_file'
          AND meta_value != ''"
     );
     $referenced = array_flip($referenced);
@@ -416,48 +416,6 @@ register_deactivation_hook(__FILE__, function () {
 });
 
 /**
- * Validates and moves an uploaded government ID document into secure storage.
- * Returns the stored (random) filename on success, or a WP_Error on failure.
- */
-function ttn_booking_store_uploaded_id_document($file) {
-    if (empty($file) || empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
-        return new WP_Error('ttn_id_missing', __('Please upload a photo of your government-issued ID.', 'tee-time-nexus-bookings'));
-    }
-
-    if (!empty($file['error']) && (int) $file['error'] !== UPLOAD_ERR_OK) {
-        return new WP_Error('ttn_id_upload_error', __('Your ID upload failed. Please try again.', 'tee-time-nexus-bookings'));
-    }
-
-    $max_size = 8 * MB_IN_BYTES;
-    if ((int) $file['size'] > $max_size) {
-        return new WP_Error('ttn_id_too_large', __('Your ID file must be smaller than 8MB.', 'tee-time-nexus-bookings'));
-    }
-
-    $allowed_mimes = array(
-        'jpg|jpeg' => 'image/jpeg',
-        'png' => 'image/png',
-        'pdf' => 'application/pdf',
-    );
-
-    $filetype = wp_check_filetype_and_ext($file['tmp_name'], $file['name'], $allowed_mimes);
-    if (empty($filetype['ext']) || empty($filetype['type'])) {
-        return new WP_Error('ttn_id_bad_type', __('Your ID must be a JPG, PNG, or PDF file.', 'tee-time-nexus-bookings'));
-    }
-
-    $secure_dir = ttn_booking_get_secure_upload_dir();
-    $random_name = 'id-' . bin2hex(random_bytes(16)) . '.' . $filetype['ext'];
-    $destination = trailingslashit($secure_dir) . $random_name;
-
-    if (!@move_uploaded_file($file['tmp_name'], $destination)) {
-        return new WP_Error('ttn_id_save_failed', __('We could not save your ID document. Please try again.', 'tee-time-nexus-bookings'));
-    }
-
-    @chmod($destination, 0600);
-
-    return $random_name;
-}
-
-/**
  * Decodes and saves a base64 PNG signature (from the on-page signature pad) into
  * secure storage. Returns the stored (random) filename on success, or a WP_Error.
  */
@@ -489,7 +447,7 @@ function ttn_booking_store_signature_image($data_url) {
 }
 
 /**
- * Streams a stored ID document or signature image to an authorized admin only.
+ * Streams a stored signature image to an authorized admin only.
  * Filenames are looked up from booking post meta, never accepted from the request,
  * and validated to stay inside the secure directory (defense against traversal).
  */
@@ -499,15 +457,13 @@ function ttn_booking_serve_secure_document() {
     }
 
     $booking_id = intval($_GET['booking_id'] ?? 0);
-    $doc_type = sanitize_key($_GET['doc_type'] ?? '');
     $nonce = sanitize_text_field(wp_unslash($_GET['nonce'] ?? ''));
 
     if (!wp_verify_nonce($nonce, 'ttn_view_secure_document_' . $booking_id)) {
         wp_die(__('Security check failed.', 'tee-time-nexus-bookings'));
     }
 
-    $meta_key = $doc_type === 'signature' ? 'ttn_booking_signature_file' : 'ttn_booking_id_document_file';
-    $filename = get_post_meta($booking_id, $meta_key, true);
+    $filename = get_post_meta($booking_id, 'ttn_booking_signature_file', true);
 
     if (!$filename || strpos($filename, '/') !== false || strpos($filename, '..') !== false) {
         wp_die(__('Document not found.', 'tee-time-nexus-bookings'));
@@ -571,16 +527,15 @@ function ttn_booking_terms_admin_page() {
 }
 
 /**
- * Whether this logged-in user has already uploaded an ID, signed, and accepted the
- * terms on a previous booking, so we don't need to ask again on future bookings.
+ * Whether this logged-in user has signed and accepted the terms on a previous
+ * booking, so we don't need to ask again on future bookings.
  */
 function ttn_booking_user_has_verification_on_file($user_id) {
     if (!$user_id) {
         return false;
     }
 
-    return (bool) get_user_meta($user_id, 'ttn_user_id_document_file', true)
-        && (bool) get_user_meta($user_id, 'ttn_user_signature_file', true)
+    return (bool) get_user_meta($user_id, 'ttn_user_signature_file', true)
         && (bool) get_user_meta($user_id, 'ttn_user_terms_accepted_at', true);
 }
 
@@ -1315,7 +1270,6 @@ function ttn_booking_add_to_cart_and_redirect($bay_name, $booking_data = array()
                 'players' => isset($booking_data['players']) ? max(1, min(4, intval($booking_data['players']))) : 1,
                 'club_preference' => isset($booking_data['club_preference']) ? sanitize_key($booking_data['club_preference']) : 'own-clubs',
                 'member_free_hours' => isset($booking_data['member_free_hours']) ? max(0, intval($booking_data['member_free_hours'])) : 0,
-                'id_document' => isset($booking_data['id_document']) ? sanitize_file_name($booking_data['id_document']) : '',
                 'signature' => isset($booking_data['signature']) ? sanitize_file_name($booking_data['signature']) : '',
                 'terms_accepted_at' => isset($booking_data['terms_accepted_at']) ? $booking_data['terms_accepted_at'] : '',
             );
@@ -1437,9 +1391,6 @@ function ttn_booking_store_order_line_data($item, $cart_item_key, $values, $orde
         $item->add_meta_data('ttn_booking_club_preference', $booking['club_preference'] ?? 'own-clubs');
         $item->add_meta_data('ttn_booking_member_free_hours', $booking['member_free_hours'] ?? 0);
         // Underscore-prefixed so WooCommerce hides these from the customer-facing order view.
-        if (!empty($booking['id_document'])) {
-            $item->add_meta_data('_ttn_booking_id_document', $booking['id_document']);
-        }
         if (!empty($booking['signature'])) {
             $item->add_meta_data('_ttn_booking_signature', $booking['signature']);
         }
@@ -1477,8 +1428,7 @@ function ttn_booking_start_woocommerce_checkout() {
         && ttn_booking_user_has_verification_on_file($current_user_id);
 
     if ($reuse_verification_on_file) {
-        // Returning, already-verified customer: reuse the ID/signature/terms already on file.
-        $id_document_filename = get_user_meta($current_user_id, 'ttn_user_id_document_file', true);
+        // Returning customer: reuse the signature and accepted terms already on file.
         $signature_filename = get_user_meta($current_user_id, 'ttn_user_signature_file', true);
         $terms_accepted_at = get_user_meta($current_user_id, 'ttn_user_terms_accepted_at', true);
     } else {
@@ -1486,15 +1436,6 @@ function ttn_booking_start_woocommerce_checkout() {
             wp_safe_redirect(add_query_arg(array(
                 'booking_error' => 'terms-required',
                 'booking_error_message' => rawurlencode(__('Please check the box to agree to the Terms and Conditions before continuing.', 'tee-time-nexus-bookings')),
-            ), home_url('/book-a-bay/')));
-            exit;
-        }
-
-        $id_document_filename = ttn_booking_store_uploaded_id_document($_FILES['ttn_id_document'] ?? null);
-        if (is_wp_error($id_document_filename)) {
-            wp_safe_redirect(add_query_arg(array(
-                'booking_error' => 'id-upload-failed',
-                'booking_error_message' => rawurlencode($id_document_filename->get_error_message()),
             ), home_url('/book-a-bay/')));
             exit;
         }
@@ -1524,7 +1465,6 @@ function ttn_booking_start_woocommerce_checkout() {
         'players' => $players,
         'club_preference' => $club_preference,
         'member_free_hours' => $member_free_hours,
-        'id_document' => $id_document_filename,
         'signature' => $signature_filename,
         'terms_accepted_at' => $terms_accepted_at,
     ));
@@ -1656,12 +1596,8 @@ function ttn_booking_process_wc_order($order_id) {
                 $parent_booking_id = $booking_id;
                 update_post_meta($booking_id, 'ttn_booking_order_id', $order->get_id());
 
-                $id_document = $item->get_meta('_ttn_booking_id_document');
                 $signature = $item->get_meta('_ttn_booking_signature');
                 $terms_accepted_at = $item->get_meta('_ttn_booking_terms_accepted_at');
-                if ($id_document) {
-                    update_post_meta($booking_id, 'ttn_booking_id_document_file', $id_document);
-                }
                 if ($signature) {
                     update_post_meta($booking_id, 'ttn_booking_signature_file', $signature);
                 }
@@ -1670,8 +1606,7 @@ function ttn_booking_process_wc_order($order_id) {
                 }
 
                 // Only now that payment is confirmed do we mark this user as "verified on file".
-                if ($user_id && $id_document && $signature && $terms_accepted_at) {
-                    update_user_meta($user_id, 'ttn_user_id_document_file', $id_document);
+                if ($user_id && $signature && $terms_accepted_at) {
                     update_user_meta($user_id, 'ttn_user_signature_file', $signature);
                     update_user_meta($user_id, 'ttn_user_terms_accepted_at', $terms_accepted_at);
                 }
@@ -1807,7 +1742,6 @@ function ttn_booking_shortcode() {
     $booking_error_fallbacks = array(
         'invalid-selection' => __('Your bay, date, or time selection was invalid or expired. Please choose your options again.', 'tee-time-nexus-bookings'),
         'terms-required' => __('Please check the box to agree to the Terms and Conditions before continuing.', 'tee-time-nexus-bookings'),
-        'id-upload-failed' => __('We could not accept your ID upload. Please make sure it is a JPG, PNG, or PDF under 8MB and try again.', 'tee-time-nexus-bookings'),
         'signature-required' => __('Please sign in the signature box to confirm your reservation before continuing.', 'tee-time-nexus-bookings'),
     );
     $booking_error_message = '';
@@ -1918,7 +1852,7 @@ function ttn_booking_shortcode() {
 
         <p class="booking-note">Reserve your bay and enjoy an immersive indoor golf experience.</p>
 
-        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" enctype="multipart/form-data" id="ttn-checkout-form">
+        <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" id="ttn-checkout-form">
             <input type="hidden" name="action" value="ttn_booking_start_woocommerce_checkout">
             <input type="hidden" name="ttn_booking_checkout_nonce" value="<?php echo esc_attr(wp_create_nonce('ttn_booking_start_checkout')); ?>">
             <input type="hidden" name="bay" id="ttn-hidden-bay">
@@ -2024,18 +1958,12 @@ function ttn_booking_shortcode() {
 
             <?php if ($skip_verification) : ?>
                 <div id="ttn-verification-on-file" style="margin-bottom: 12px; padding: 14px 16px; background: rgba(161, 224, 76, 0.08); border: 1px solid rgba(161, 224, 76, 0.3); border-radius: 12px; font-size: 0.9rem;">
-                    ✓ Using the ID, signature, and accepted Terms &amp; Conditions already on file for your account.
+                    ✓ Using the signature and accepted Terms &amp; Conditions already on file for your account.
                     <button type="button" class="btn btn-small-white" id="ttn-verification-update-toggle" style="margin-left: 8px;">Update instead</button>
                 </div>
             <?php endif; ?>
 
             <div id="ttn-verification-fields" <?php echo $skip_verification ? 'hidden' : ''; ?>>
-                <div style="margin-bottom: 20px;">
-                    <label for="ttn-id-document" style="display: block; margin-bottom: 8px; font-weight: 600;">Upload a photo of your government-issued ID</label>
-                    <input type="file" name="ttn_id_document" id="ttn-id-document" accept=".jpg,.jpeg,.png,.pdf" <?php echo $skip_verification ? '' : 'required'; ?>>
-                    <p style="margin: 6px 0 0; font-size: 0.8rem; color: var(--muted);">JPG, PNG, or PDF, up to 8MB. Stored securely and only viewable by our staff.</p>
-                </div>
-
                 <div style="margin-bottom: 20px;">
                     <label style="display: block; margin-bottom: 8px; font-weight: 600;">Sign to confirm your reservation</label>
                     <canvas id="ttn-signature-pad" width="500" height="160" style="width: 100%; max-width: 500px; height: 160px; background: #ffffff; border-radius: 10px; border: 2px solid #ffffff; touch-action: none; cursor: crosshair;"></canvas>
@@ -2098,11 +2026,9 @@ function ttn_booking_shortcode() {
             if (useOnFile && useOnFile.value === '1') {
                 return true;
             }
-            const idInput = document.getElementById('ttn-id-document');
             const termsInput = document.getElementById('ttn-terms-accepted');
-            const hasId = Boolean(idInput && idInput.files && idInput.files.length > 0);
             const hasTerms = Boolean(termsInput && termsInput.checked);
-            return hasId && hasTerms && hasSignature;
+            return hasTerms && hasSignature;
         }
 
         function updateWorkflowVisibility() {
@@ -2571,11 +2497,6 @@ function ttn_booking_shortcode() {
                 });
             }
 
-            const idDocumentInput = document.getElementById('ttn-id-document');
-            if (idDocumentInput) {
-                idDocumentInput.addEventListener('change', () => updateSummary());
-            }
-
             const termsCheckbox = document.getElementById('ttn-terms-accepted');
             if (termsCheckbox) {
                 termsCheckbox.addEventListener('change', () => updateSummary());
@@ -2595,7 +2516,7 @@ function ttn_booking_shortcode() {
             }
         })();
 
-        // Reuse-on-file toggle: lets a returning customer re-verify instead of reusing saved ID/signature.
+        // Reuse-on-file toggle: lets a returning customer re-verify instead of reusing their saved signature.
         (function () {
             const toggleBtn = document.getElementById('ttn-verification-update-toggle');
             if (!toggleBtn) return;
@@ -2604,7 +2525,6 @@ function ttn_booking_shortcode() {
                 document.getElementById('ttn-verification-on-file').hidden = true;
                 document.getElementById('ttn-verification-fields').hidden = false;
                 document.getElementById('ttn-hidden-use-verification-on-file').value = '0';
-                document.getElementById('ttn-id-document').setAttribute('required', 'required');
                 document.getElementById('ttn-terms-accepted').setAttribute('required', 'required');
                 updateSummary();
             });
@@ -2936,7 +2856,6 @@ function ttn_render_booking_dashboard() {
             'payment_status' => get_post_meta($p->ID, 'ttn_booking_payment_status', true) ?: '—',
             'total_price' => get_post_meta($p->ID, 'ttn_booking_total_price', true),
             'payment' => ttn_booking_get_order_payment_details(get_post_meta($p->ID, 'ttn_booking_order_id', true)),
-            'id_document_file' => get_post_meta($p->ID, 'ttn_booking_id_document_file', true),
             'signature_file' => get_post_meta($p->ID, 'ttn_booking_signature_file', true),
             'terms_accepted_at' => get_post_meta($p->ID, 'ttn_booking_terms_accepted_at', true),
         );
@@ -3065,16 +2984,12 @@ function ttn_render_booking_dashboard() {
                             <td>
                                 <?php
                                 $doc_nonce = wp_create_nonce('ttn_view_secure_document_' . $b_admin['ID']);
-                                $id_view_url = admin_url('admin-post.php?action=ttn_view_secure_document&doc_type=id&booking_id=' . $b_admin['ID'] . '&nonce=' . $doc_nonce);
-                                $sig_view_url = admin_url('admin-post.php?action=ttn_view_secure_document&doc_type=signature&booking_id=' . $b_admin['ID'] . '&nonce=' . $doc_nonce);
+                                $sig_view_url = admin_url('admin-post.php?action=ttn_view_secure_document&booking_id=' . $b_admin['ID'] . '&nonce=' . $doc_nonce);
                                 ?>
-                                <?php if (!empty($b_admin['id_document_file'])) : ?>
-                                    <a href="<?php echo esc_url($id_view_url); ?>" class="button button-small" target="_blank" rel="noopener">View ID</a>
-                                <?php endif; ?>
                                 <?php if (!empty($b_admin['signature_file'])) : ?>
                                     <a href="<?php echo esc_url($sig_view_url); ?>" class="button button-small" target="_blank" rel="noopener">View Signature</a>
                                 <?php endif; ?>
-                                <?php if (empty($b_admin['id_document_file']) && empty($b_admin['signature_file'])) : ?>
+                                <?php if (empty($b_admin['signature_file'])) : ?>
                                     <span>—</span>
                                 <?php endif; ?>
                                 <?php if (!empty($b_admin['terms_accepted_at'])) : ?>

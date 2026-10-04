@@ -12,8 +12,8 @@ $selected_package = isset($_GET['package']) ? strtoupper(sanitize_text_field(wp_
                 <?php echo golf_simulator_theme_render_membership_signup($selected_package); ?>
             <?php else : ?>
             <div class="section-heading section-heading-center">
-                <span class="kicker">Membership</span>
-                <h1 class="section-title">Choose your level</h1>
+                <h1 class="kicker">Membership</h1>
+                <h3 class="section-title">Choose Your Tee Time Experience</h3>
             </div>
 
             <?php echo do_shortcode('[golf_simulator_membership_packages]'); ?>
