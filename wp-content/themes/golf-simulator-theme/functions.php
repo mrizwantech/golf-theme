@@ -84,6 +84,65 @@ function golf_simulator_theme_ensure_hours_page() {
 }
 add_action('init', 'golf_simulator_theme_ensure_hours_page', 20);
 
+function golf_simulator_theme_ensure_contact_page() {
+    $page = get_page_by_path('contact');
+    if (!$page) {
+        $page_id = wp_insert_post(array(
+            'post_title' => 'Contact Us',
+            'post_name' => 'contact',
+            'post_status' => 'publish',
+            'post_type' => 'page',
+            'post_content' => '',
+        ));
+        if (is_wp_error($page_id) || !$page_id) {
+            return;
+        }
+        $page = get_post($page_id);
+    }
+
+    if ($page && get_post_meta($page->ID, '_wp_page_template', true) !== 'page-contact.php') {
+        update_post_meta($page->ID, '_wp_page_template', 'page-contact.php');
+    }
+}
+add_action('init', 'golf_simulator_theme_ensure_contact_page', 20);
+
+function golf_simulator_theme_handle_contact_form() {
+    $redirect_url = home_url('/contact/');
+    $nonce = sanitize_text_field(wp_unslash($_POST['contact_nonce'] ?? ''));
+    if (!wp_verify_nonce($nonce, 'golf_simulator_contact_submit')) {
+        wp_safe_redirect(add_query_arg('contact', 'error', $redirect_url));
+        exit;
+    }
+
+    if (!empty($_POST['website'])) {
+        wp_safe_redirect(add_query_arg('contact', 'sent', $redirect_url));
+        exit;
+    }
+
+    $name = sanitize_text_field(wp_unslash($_POST['name'] ?? ''));
+    $email = sanitize_email(wp_unslash($_POST['email'] ?? ''));
+    $phone = sanitize_text_field(wp_unslash($_POST['phone'] ?? ''));
+    $message = sanitize_textarea_field(wp_unslash($_POST['message'] ?? ''));
+
+    if (!$name || !is_email($email) || !$message || strlen($message) > 5000) {
+        wp_safe_redirect(add_query_arg('contact', 'error', $redirect_url));
+        exit;
+    }
+
+    $email_body = "New message from the Tee Time Nexus contact form.\n\n"
+        . "Name: {$name}\n"
+        . "Email: {$email}\n"
+        . "Phone: " . ($phone ?: 'Not provided') . "\n\n"
+        . "Message:\n{$message}";
+    $headers = array('Reply-To: ' . $name . ' <' . $email . '>');
+    $sent = wp_mail('sales@teetimenexus.com', 'Website contact message from ' . $name, $email_body, $headers);
+
+    wp_safe_redirect(add_query_arg('contact', $sent ? 'sent' : 'send-error', $redirect_url));
+    exit;
+}
+add_action('admin_post_golf_simulator_contact_submit', 'golf_simulator_theme_handle_contact_form');
+add_action('admin_post_nopriv_golf_simulator_contact_submit', 'golf_simulator_theme_handle_contact_form');
+
 function golf_simulator_theme_render_launch_screen() {
     if (!is_front_page() || is_user_logged_in()) {
         return;
@@ -99,7 +158,7 @@ function golf_simulator_theme_render_launch_screen() {
 add_action('wp_footer', 'golf_simulator_theme_render_launch_screen', 999);
 
 function golf_simulator_theme_get_seo_description() {
-    $default = 'Indoor golf simulator experience with premium bay rentals, coaching, leagues, and private events for players of all levels.';
+    $default = 'Play indoor golf in Mooresville, NC at Tee Time Nexus. Book GOLFZON TwoVision NX simulator bays for practice, full rounds, and year-round play.';
 
     if (is_front_page()) {
         return $default;
@@ -108,13 +167,24 @@ function golf_simulator_theme_get_seo_description() {
     if (is_singular()) {
         $post = get_post();
         if ($post) {
+            $page_descriptions = array(
+                'about-us' => 'Meet Tee Time Nexus, a locally owned Mooresville indoor golf destination powered by GOLFZON TwoVision NX, advanced shot tracking, and 24/7 member access.',
+                'hours' => 'Find Tee Time Nexus weekday and weekend hours in Mooresville, NC, plus details about secure 24/7 facility access for members.',
+                'contact' => 'Contact Tee Time Nexus in Mooresville, NC about bookings, memberships, or visiting. Call, email, or send our team a message.',
+                'book-a-bay' => 'Book an indoor golf simulator bay at Tee Time Nexus in Mooresville, NC. Choose your bay, date, duration, and available tee time.',
+                'membership' => 'Explore Tee Time Nexus memberships for indoor golf in Mooresville, NC, including member access, daily playing hours, and simulator benefits.',
+            );
+            if (isset($page_descriptions[$post->post_name])) {
+                return $page_descriptions[$post->post_name];
+            }
+
             if (has_excerpt($post)) {
-                return wp_trim_words(wp_strip_all_tags($post->post_excerpt), 24, '...');
+                return wp_html_excerpt(wp_strip_all_tags($post->post_excerpt), 160, '...');
             }
 
             $content = wp_strip_all_tags($post->post_content);
             if (!empty($content)) {
-                return wp_trim_words($content, 24, '...');
+                return wp_html_excerpt($content, 160, '...');
             }
         }
     }
@@ -126,14 +196,21 @@ function golf_simulator_theme_get_seo_title() {
     $site_name = get_bloginfo('name');
 
     if (is_front_page()) {
-        if (get_bloginfo('description')) {
-            return $site_name . ' | ' . get_bloginfo('description');
-        }
-
-        return $site_name . ' | Premium Indoor Golf Simulator Experience';
+        return $site_name . ' | Indoor Golf in Mooresville, NC';
     }
 
     if (is_singular()) {
+        $post = get_post();
+        $page_titles = array(
+            'about-us' => 'About Tee Time Nexus | Indoor Golf in Mooresville, NC',
+            'hours' => 'Hours & 24/7 Member Access | ' . $site_name,
+            'contact' => 'Contact Tee Time Nexus | ' . $site_name,
+            'book-a-bay' => 'Book an Indoor Golf Simulator | ' . $site_name,
+            'membership' => 'Indoor Golf Memberships | ' . $site_name,
+        );
+        if ($post && isset($page_titles[$post->post_name])) {
+            return $page_titles[$post->post_name];
+        }
         return get_the_title() . ' | ' . $site_name;
     }
 
@@ -141,25 +218,64 @@ function golf_simulator_theme_get_seo_title() {
         return get_the_archive_title() . ' | ' . $site_name;
     }
 
-    return wp_title('|', false, 'right') . $site_name;
+    if (is_search()) {
+        return sprintf('Search results for %s | %s', get_search_query(), $site_name);
+    }
+
+    if (is_404()) {
+        return 'Page not found | ' . $site_name;
+    }
+
+    return $site_name . ' | Indoor Golf in Mooresville, NC';
 }
+add_filter('pre_get_document_title', 'golf_simulator_theme_get_seo_title');
+
+function golf_simulator_theme_filter_robots($robots) {
+    if (is_search() || is_404() || is_attachment()) {
+        $robots['noindex'] = true;
+        return $robots;
+    }
+
+    $robots['max-image-preview'] = 'large';
+    $robots['max-snippet'] = -1;
+    $robots['max-video-preview'] = -1;
+
+    return $robots;
+}
+add_filter('wp_robots', 'golf_simulator_theme_filter_robots');
 
 function golf_simulator_theme_render_seo_meta() {
     global $wp;
 
+    remove_action('wp_head', 'rel_canonical');
+
     $site_name = get_bloginfo('name');
-    $current_url = home_url(add_query_arg(array(), $wp->request));
+    if (is_front_page()) {
+        $current_url = home_url('/');
+    } elseif (is_singular()) {
+        $current_url = wp_get_canonical_url();
+    } else {
+        $current_url = home_url(user_trailingslashit($wp->request));
+    }
+    $current_url = $current_url ?: home_url('/');
     $title = wp_strip_all_tags(golf_simulator_theme_get_seo_title());
     $description = wp_strip_all_tags(golf_simulator_theme_get_seo_description());
     $description = preg_replace('/\s+/', ' ', $description);
-    $image_url = get_theme_mod('golf_simulator_og_image', 'https://images.unsplash.com/photo-1535131749006-b7f58c99034b?auto=format&fit=crop&w=1600&q=80');
+    $image_url = is_singular() && has_post_thumbnail()
+        ? get_the_post_thumbnail_url(null, 'full')
+        : '';
+    if (!$image_url) {
+        $image_url = get_theme_mod('golf_simulator_og_image');
+    }
+    if (!$image_url) {
+        $image_url = get_theme_mod('golf_simulator_slide_1_image', 'https://images.unsplash.com/photo-1535131749006-b7f58c99034b?auto=format&fit=crop&w=1600&q=80');
+    }
 
     echo "<meta name=\"description\" content=\"" . esc_attr($description) . "\" />\n";
-    echo "<meta name=\"robots\" content=\"index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1\" />\n";
     echo "<link rel=\"canonical\" href=\"" . esc_url($current_url) . "\" />\n";
 
     echo "<meta property=\"og:locale\" content=\"" . esc_attr(str_replace('_', '-', get_locale())) . "\" />\n";
-    echo "<meta property=\"og:type\" content=\"website\" />\n";
+    echo "<meta property=\"og:type\" content=\"" . (is_singular('post') ? 'article' : 'website') . "\" />\n";
     echo "<meta property=\"og:title\" content=\"" . esc_attr($title) . "\" />\n";
     echo "<meta property=\"og:description\" content=\"" . esc_attr($description) . "\" />\n";
     echo "<meta property=\"og:url\" content=\"" . esc_url($current_url) . "\" />\n";
@@ -187,8 +303,10 @@ function golf_simulator_theme_render_local_business_schema() {
         'name' => get_bloginfo('name'),
         'description' => golf_simulator_theme_get_seo_description(),
         'url' => home_url('/'),
+        'image' => get_theme_mod('golf_simulator_og_image') ?: get_theme_mod('golf_simulator_slide_1_image', 'https://images.unsplash.com/photo-1535131749006-b7f58c99034b?auto=format&fit=crop&w=1600&q=80'),
+        'hasMap' => 'https://maps.app.goo.gl/Fu5JUodn9BqbYo7A8',
         'telephone' => '+1-980-503-3288',
-        'email' => 'hello@teetimenexus.com',
+        'email' => 'sales@teetimenexus.com',
         'address' => array(
             '@type' => 'PostalAddress',
             'streetAddress' => '2785 Charlotte Hwy, Suites 11 & 12',
@@ -198,6 +316,10 @@ function golf_simulator_theme_render_local_business_schema() {
             'addressCountry' => 'US',
         ),
         'openingHours' => array('Mo-Fr 10:00-21:00', 'Sa-Su 09:00-22:00'),
+        'areaServed' => array(
+            '@type' => 'City',
+            'name' => 'Mooresville, North Carolina',
+        ),
         'sameAs' => array(
             'https://www.facebook.com/teetimenexus',
             'https://www.instagram.com/teetimenexus/',
