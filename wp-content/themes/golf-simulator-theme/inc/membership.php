@@ -508,7 +508,7 @@ function golf_simulator_theme_register_membership_package_post_type() {
         'show_ui' => true,
         'show_in_menu' => false,
         'menu_icon' => 'dashicons-groups',
-        'supports' => array('title', 'thumbnail'),
+        'supports' => array('title'),
         'has_archive' => false,
         'rewrite' => array('slug' => 'membership-package'),
         'show_in_rest' => false,
@@ -537,6 +537,12 @@ function golf_simulator_theme_membership_admin_assets($hook) {
         wp_get_theme()->get('Version')
     );
 
+    $screen = get_current_screen();
+    if ($screen && ('membership_package' === $screen->post_type || in_array($hook, array('toplevel_page_membership-packages', 'membership-packages_page_membership-package-settings'), true))) {
+        wp_enqueue_media();
+        wp_enqueue_script('jquery');
+    }
+
     wp_add_inline_style('golf-simulator-membership-admin', "
         .membership-package-admin-box {
             display: grid;
@@ -549,7 +555,7 @@ function golf_simulator_theme_membership_admin_assets($hook) {
         }
         .membership-package-admin-grid {
             display: grid;
-            grid-template-columns: repeat(2, minmax(220px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
             gap: 16px;
         }
         .membership-package-admin-field {
@@ -573,6 +579,13 @@ function golf_simulator_theme_membership_admin_assets($hook) {
         }
         .membership-package-admin-field textarea {
             min-height: 130px;
+        }
+        #membership-thumbnail-preview img {
+            display: block;
+            width: auto;
+            max-width: 320px;
+            max-height: 200px;
+            margin-bottom: 12px;
         }
         .membership-package-admin-actions {
             display: flex;
@@ -604,6 +617,53 @@ function golf_simulator_theme_membership_admin_assets($hook) {
 }
 add_action('admin_enqueue_scripts', 'golf_simulator_theme_membership_admin_assets');
 
+function golf_simulator_theme_membership_thumbnail_picker_script() {
+    $screen = get_current_screen();
+    if (!$screen || ('membership_package' !== $screen->post_type && !in_array($screen->id, array('toplevel_page_membership-packages', 'membership-packages_page_membership-package-settings'), true))) {
+        return;
+    }
+    ?>
+    <script>
+        jQuery(function ($) {
+            let thumbnailFrame;
+            let activeThumbnailButton;
+
+            $(document).on('click', '.membership-thumbnail-select', function (event) {
+                event.preventDefault();
+                activeThumbnailButton = $(this);
+
+                if (!thumbnailFrame) {
+                    thumbnailFrame = wp.media({
+                        title: 'Choose package thumbnail',
+                        button: { text: 'Use this image' },
+                        library: { type: 'image' },
+                        multiple: false
+                    });
+
+                    thumbnailFrame.on('select', function () {
+                        const attachment = thumbnailFrame.state().get('selection').first().toJSON();
+                        $('#' + activeThumbnailButton.data('input')).val(attachment.id);
+                        $('#' + activeThumbnailButton.data('preview')).html($('<img>', { src: attachment.url, alt: '' }));
+                        $('#' + activeThumbnailButton.data('remove')).prop('hidden', false);
+                    });
+                }
+
+                thumbnailFrame.open();
+            });
+
+            $(document).on('click', '.membership-thumbnail-remove', function (event) {
+                event.preventDefault();
+                const button = $(this);
+                $('#' + button.data('input')).val('');
+                $('#' + button.data('preview')).empty();
+                button.prop('hidden', true);
+            });
+        });
+    </script>
+    <?php
+}
+add_action('admin_footer', 'golf_simulator_theme_membership_thumbnail_picker_script');
+
 function golf_simulator_theme_save_membership_package_defaults() {
     if (!current_user_can('manage_options')) {
         return;
@@ -614,6 +674,7 @@ function golf_simulator_theme_save_membership_package_defaults() {
     }
 
     $templates = golf_simulator_theme_get_default_membership_package_templates();
+    $previous_defaults = get_option('golf_simulator_membership_package_defaults', array());
     $saved = array();
 
     foreach ($templates as $package_key => $template) {
@@ -634,6 +695,13 @@ function golf_simulator_theme_save_membership_package_defaults() {
             exit;
         }
 
+        $thumbnail_id = isset($_POST['golf_simulator_membership_defaults'][$package_key]['thumbnail_id'])
+            ? absint(wp_unslash($_POST['golf_simulator_membership_defaults'][$package_key]['thumbnail_id']))
+            : absint($previous_defaults[$package_key]['thumbnail_id'] ?? 0);
+        if ($thumbnail_id && !wp_attachment_is_image($thumbnail_id)) {
+            $thumbnail_id = 0;
+        }
+
         $saved[$package_key] = array(
             'title' => isset($_POST['golf_simulator_membership_defaults'][$package_key]['title']) ? sanitize_text_field(wp_unslash($_POST['golf_simulator_membership_defaults'][$package_key]['title'])) : $template['title'],
             'price' => $price,
@@ -641,12 +709,13 @@ function golf_simulator_theme_save_membership_package_defaults() {
             'billing' => isset($_POST['golf_simulator_membership_defaults'][$package_key]['billing']) ? sanitize_text_field(wp_unslash($_POST['golf_simulator_membership_defaults'][$package_key]['billing'])) : $template['billing'],
             'featured' => !empty($_POST['golf_simulator_membership_defaults'][$package_key]['featured']) ? true : false,
             'features' => isset($_POST['golf_simulator_membership_defaults'][$package_key]['features']) ? wp_unslash($_POST['golf_simulator_membership_defaults'][$package_key]['features']) : implode("\n", $template['features']),
+            'thumbnail_id' => $thumbnail_id,
         );
     }
 
     update_option('golf_simulator_membership_package_defaults', $saved);
 
-    foreach ($saved as $package) {
+    foreach ($saved as $package_key => $package) {
         $package_posts = get_posts(array(
             'post_type' => 'membership_package',
             'post_status' => 'any',
@@ -659,6 +728,7 @@ function golf_simulator_theme_save_membership_package_defaults() {
                 continue;
             }
 
+            update_post_meta($package_post->ID, '_membership_default_key', $package_key);
             update_post_meta($package_post->ID, '_membership_price', $package['price']);
             update_post_meta($package_post->ID, '_membership_discount_price', $package['discount_price']);
             update_post_meta($package_post->ID, '_membership_billing', $package['billing']);
@@ -689,7 +759,7 @@ function golf_simulator_theme_membership_package_settings_page() {
     <div class="wrap membership-package-settings-wrapper">
         <h2><?php esc_html_e('Membership Package Settings', 'golf-simulator-theme'); ?></h2>
         <p><?php esc_html_e('These default values are used whenever a package is restored or newly created. You can edit them here and save the changes once.', 'golf-simulator-theme'); ?></p>
-        <p><?php esc_html_e('To set a separate card thumbnail for each package, edit it under Manage Packages and choose a Featured Image.', 'golf-simulator-theme'); ?></p>
+        <p><?php esc_html_e('Set a thumbnail for each default tier below, or choose one in the Package Thumbnail field when editing a package under Manage Packages.', 'golf-simulator-theme'); ?></p>
 
         <div class="membership-package-admin-actions" style="margin: 0 0 20px;">
             <a href="<?php echo esc_url(admin_url('post-new.php?post_type=membership_package')); ?>" class="button button-primary">
@@ -703,7 +773,7 @@ function golf_simulator_theme_membership_package_settings_page() {
         <?php if (isset($_GET['membership_error']) && $_GET['membership_error']) : ?>
             <div class="notice notice-error is-dismissible"><p><?php echo esc_html(wp_unslash($_GET['membership_error'])); ?></p></div>
         <?php elseif (isset($_GET['updated']) && '1' === $_GET['updated']) : ?>
-            <div class="notice notice-success is-dismissible"><p><?php esc_html_e('Membership package defaults were updated.', 'golf-simulator-theme'); ?></p></div>
+            <div class="notice notice-success is-dismissible"><p><?php esc_html_e('Membership package settings were saved.', 'golf-simulator-theme'); ?></p></div>
         <?php endif; ?>
 
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
@@ -712,6 +782,13 @@ function golf_simulator_theme_membership_package_settings_page() {
 
             <div class="membership-package-admin-box">
                 <?php foreach ($defaults as $key => $package) : ?>
+                    <?php
+                    $thumbnail_id = absint($package['thumbnail_id'] ?? 0);
+                    $thumbnail_url = $thumbnail_id ? wp_get_attachment_image_url($thumbnail_id, 'medium') : '';
+                    $thumbnail_input_id = 'membership-package-thumbnail-' . sanitize_html_class($key);
+                    $thumbnail_preview_id = $thumbnail_input_id . '-preview';
+                    $thumbnail_remove_id = $thumbnail_input_id . '-remove';
+                    ?>
                     <div class="membership-package-admin-grid" style="border:1px solid rgba(15,81,50,0.12); border-radius:12px; padding:16px; background:#fff;">
                         <div class="membership-package-admin-field">
                             <label><strong><?php echo esc_html($key); ?> <?php esc_html_e('Tier Name', 'golf-simulator-theme'); ?></strong></label>
@@ -732,11 +809,25 @@ function golf_simulator_theme_membership_package_settings_page() {
                             <label><strong><?php esc_html_e('Package Features', 'golf-simulator-theme'); ?></strong></label>
                             <textarea name="golf_simulator_membership_defaults[<?php echo esc_attr($key); ?>][features]" rows="6"><?php echo esc_textarea(is_array($package['features']) ? implode("\n", $package['features']) : $package['features']); ?></textarea>
                         </div>
+
+                        <div class="membership-package-admin-field" style="grid-column: 1 / -1;">
+                            <label><strong><?php esc_html_e('Package Thumbnail', 'golf-simulator-theme'); ?></strong></label>
+                            <input type="hidden" id="<?php echo esc_attr($thumbnail_input_id); ?>" name="golf_simulator_membership_defaults[<?php echo esc_attr($key); ?>][thumbnail_id]" value="<?php echo esc_attr($thumbnail_id); ?>">
+                            <div id="<?php echo esc_attr($thumbnail_preview_id); ?>">
+                                <?php if ($thumbnail_url) : ?>
+                                    <img src="<?php echo esc_url($thumbnail_url); ?>" alt="">
+                                <?php endif; ?>
+                            </div>
+                            <div class="membership-package-admin-actions">
+                                <button type="button" class="button membership-thumbnail-select" data-input="<?php echo esc_attr($thumbnail_input_id); ?>" data-preview="<?php echo esc_attr($thumbnail_preview_id); ?>" data-remove="<?php echo esc_attr($thumbnail_remove_id); ?>"><?php esc_html_e('Choose Thumbnail', 'golf-simulator-theme'); ?></button>
+                                <button type="button" id="<?php echo esc_attr($thumbnail_remove_id); ?>" class="button membership-thumbnail-remove" data-input="<?php echo esc_attr($thumbnail_input_id); ?>" data-preview="<?php echo esc_attr($thumbnail_preview_id); ?>" <?php echo $thumbnail_id ? '' : 'hidden'; ?>><?php esc_html_e('Remove Thumbnail', 'golf-simulator-theme'); ?></button>
+                            </div>
+                        </div>
                     </div>
                 <?php endforeach; ?>
 
                 <div class="membership-package-admin-actions">
-                    <button type="submit" class="button button-primary"><?php esc_html_e('Save default package settings', 'golf-simulator-theme'); ?></button>
+                    <button type="submit" class="button button-primary"><?php esc_html_e('Save Changes', 'golf-simulator-theme'); ?></button>
                 </div>
             </div>
         </form>
@@ -931,7 +1022,7 @@ function golf_simulator_theme_ensure_default_membership_packages() {
 
     $defaults = golf_simulator_theme_get_default_membership_packages();
 
-    foreach ($defaults as $package) {
+    foreach ($defaults as $package_key => $package) {
         $package_query = get_posts(array(
             'post_type' => 'membership_package',
             'post_status' => 'any',
@@ -948,6 +1039,7 @@ function golf_simulator_theme_ensure_default_membership_packages() {
         ));
 
         if (!is_wp_error($post_id) && $post_id) {
+            update_post_meta($post_id, '_membership_default_key', $package_key);
             $existing_price = get_post_meta($post_id, '_membership_price', true);
             $existing_discount = get_post_meta($post_id, '_membership_discount_price', true);
             $existing_billing = get_post_meta($post_id, '_membership_billing', true);
@@ -1018,6 +1110,8 @@ add_action('add_meta_boxes', 'golf_simulator_theme_membership_package_meta_box')
 function golf_simulator_theme_render_membership_package_meta_box($post) {
     wp_nonce_field('golf_simulator_membership_package_meta', 'golf_simulator_membership_package_nonce');
 
+    $thumbnail_id = absint(get_post_meta($post->ID, '_membership_thumbnail_id', true));
+    $thumbnail_url = $thumbnail_id ? wp_get_attachment_image_url($thumbnail_id, 'medium') : '';
     $price = get_post_meta($post->ID, '_membership_price', true);
     $discount_price = get_post_meta($post->ID, '_membership_discount_price', true);
     $billing = get_post_meta($post->ID, '_membership_billing', true);
@@ -1030,16 +1124,25 @@ function golf_simulator_theme_render_membership_package_meta_box($post) {
     <div class="membership-package-admin-box">
         <div class="membership-package-admin-grid">
             <div class="membership-package-admin-field">
-                <label for="post_title"><strong><?php esc_html_e('Membership Tier', 'golf-simulator-theme'); ?></strong></label>
-                <input type="text" id="post_title" name="post_title" value="<?php echo esc_attr(get_the_title($post->ID)); ?>" placeholder="PAR" />
-            </div>
-            <div class="membership-package-admin-field">
                 <label for="membership_price"><strong><?php esc_html_e('Regular Price', 'golf-simulator-theme'); ?></strong></label>
                 <input type="text" id="membership_price" name="membership_price" value="<?php echo esc_attr($price !== '' ? $price : ($default_package['price'] ?? '')); ?>" placeholder="250" />
             </div>
             <div class="membership-package-admin-field">
                 <label for="membership_discount_price"><strong><?php esc_html_e('Discounted Price', 'golf-simulator-theme'); ?></strong></label>
                 <input type="text" id="membership_discount_price" name="membership_discount_price" value="<?php echo esc_attr($has_discount_meta ? $discount_price : ($default_package['discount_price'] ?? '')); ?>" placeholder="200" />
+            </div>
+        </div>
+        <div class="membership-package-admin-field">
+            <label><strong><?php esc_html_e('Package Thumbnail', 'golf-simulator-theme'); ?></strong></label>
+            <input type="hidden" id="membership-thumbnail-id" name="membership_thumbnail_id" value="<?php echo esc_attr($thumbnail_id); ?>">
+            <div id="membership-thumbnail-preview">
+                <?php if ($thumbnail_url) : ?>
+                    <img src="<?php echo esc_url($thumbnail_url); ?>" alt="">
+                <?php endif; ?>
+            </div>
+            <div class="membership-package-admin-actions">
+                <button type="button" id="membership-thumbnail-select" class="button membership-thumbnail-select" data-input="membership-thumbnail-id" data-preview="membership-thumbnail-preview" data-remove="membership-thumbnail-remove"><?php esc_html_e('Choose Thumbnail', 'golf-simulator-theme'); ?></button>
+                <button type="button" id="membership-thumbnail-remove" class="button membership-thumbnail-remove" data-input="membership-thumbnail-id" data-preview="membership-thumbnail-preview" <?php echo $thumbnail_id ? '' : 'hidden'; ?>><?php esc_html_e('Remove Thumbnail', 'golf-simulator-theme'); ?></button>
             </div>
         </div>
         <div class="membership-package-admin-field">
@@ -1109,13 +1212,23 @@ function golf_simulator_theme_save_membership_package_meta($post_id) {
     if (isset($_POST['membership_features'])) {
         update_post_meta($post_id, '_membership_features', wp_unslash($_POST['membership_features']));
     }
+
+    if (isset($_POST['membership_thumbnail_id'])) {
+        $thumbnail_id = absint(wp_unslash($_POST['membership_thumbnail_id']));
+        if ($thumbnail_id && wp_attachment_is_image($thumbnail_id)) {
+            update_post_meta($post_id, '_membership_thumbnail_id', $thumbnail_id);
+        } else {
+            delete_post_meta($post_id, '_membership_thumbnail_id');
+        }
+    }
 }
 add_action('save_post_membership_package', 'golf_simulator_theme_save_membership_package_meta');
 
 function golf_simulator_theme_get_membership_package_data($post_id) {
     $title = get_the_title($post_id);
     $defaults = golf_simulator_theme_get_default_membership_packages();
-    $default_package = $defaults[$title] ?? array();
+    $default_key = get_post_meta($post_id, '_membership_default_key', true);
+    $default_package = isset($defaults[$default_key]) ? $defaults[$default_key] : ($defaults[$title] ?? array());
 
     $price = get_post_meta($post_id, '_membership_price', true);
     $discount_price = get_post_meta($post_id, '_membership_discount_price', true);
@@ -1138,6 +1251,7 @@ function golf_simulator_theme_get_membership_package_data($post_id) {
         'billing' => $billing !== '' && $billing !== false ? $billing : ($default_package['billing'] ?? '/mo'),
         'featured' => $featured || ($default_package['featured'] ?? false),
         'features' => $features,
+        'thumbnail_id' => absint($default_package['thumbnail_id'] ?? 0),
         'link' => add_query_arg('package', rawurlencode($title), home_url('/membership')),
     );
 }
@@ -1420,7 +1534,8 @@ function golf_simulator_theme_render_membership_packages() {
     <?php foreach ($packages as $package) : ?>
         <?php
         $data = golf_simulator_theme_get_membership_package_data($package->ID);
-        $card_image = get_the_post_thumbnail_url($package->ID, 'large');
+        $thumbnail_id = absint(get_post_meta($package->ID, '_membership_thumbnail_id', true)) ?: absint($data['thumbnail_id']);
+        $card_image = $thumbnail_id ? wp_get_attachment_image_url($thumbnail_id, 'large') : '';
         $card_background = 'linear-gradient(90deg, rgba(2, 13, 13, .94) 0%, rgba(2, 13, 13, .45) 72%, rgba(2, 13, 13, .1) 100%)';
         if ($card_image) {
             $card_background .= ', url("' . esc_url_raw($card_image) . '")';

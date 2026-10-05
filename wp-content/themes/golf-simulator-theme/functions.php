@@ -65,6 +65,17 @@ add_action('init', 'golf_simulator_theme_ensure_about_page', 20);
 function golf_simulator_theme_ensure_golf_technology_page() {
     $page = get_page_by_path('golf-technology');
     if (!$page) {
+        $technology_pages = get_posts(array(
+            'post_type' => 'page',
+            'post_status' => 'any',
+            'posts_per_page' => 1,
+            'meta_key' => '_wp_page_template',
+            'meta_value' => 'page-golf-technology.php',
+        ));
+        $page = $technology_pages[0] ?? null;
+    }
+
+    if (!$page) {
         $page_id = wp_insert_post(array(
             'post_title' => 'Golf Technology',
             'post_name' => 'golf-technology',
@@ -83,6 +94,192 @@ function golf_simulator_theme_ensure_golf_technology_page() {
     }
 }
 add_action('init', 'golf_simulator_theme_ensure_golf_technology_page', 20);
+
+function golf_simulator_theme_is_golf_technology_page($post) {
+    return $post instanceof WP_Post
+        && 'page' === $post->post_type
+        && ('golf-technology' === $post->post_name || 'page-golf-technology.php' === get_post_meta($post->ID, '_wp_page_template', true));
+}
+
+function golf_simulator_theme_golf_technology_features() {
+    return array(
+        'technology-moving-swing-plate' => array('number' => '01', 'label' => 'Motion Plate'),
+        'technology-auto-tee' => array('number' => '02', 'label' => 'Auto-Tee'),
+        'technology-mapped-courses' => array('number' => '03', 'label' => '350+ Golf Courses'),
+        'technology-shot-analysis' => array('number' => '04', 'label' => 'Shot Analysis'),
+        'technology-shot-tracking' => array('number' => '05', 'label' => 'Advanced Shot Tracking'),
+        'technology-mobile-app' => array('number' => '06', 'label' => 'Mobile App'),
+        'technology-club-data' => array('number' => '07', 'label' => 'Club Data'),
+        'technology-precision-putting' => array('number' => '08', 'label' => 'Precision Putting'),
+        'technology-driving-range' => array('number' => '09', 'label' => 'Driving Range'),
+        'technology-approach-practice' => array('number' => '10', 'label' => 'Approach Practice'),
+        'technology-pitch-chip' => array('number' => '11', 'label' => 'Pitch & Chip'),
+        'technology-performance-tracking' => array('number' => '12', 'label' => 'Performance Tracking'),
+        'technology-multi-surface-play' => array('number' => '13', 'label' => 'Multi-Surface Play'),
+        'technology-network-play' => array('number' => '14', 'label' => 'Network Play'),
+        'technology-swing-replay' => array('number' => '15', 'label' => 'Swing Replay'),
+        'technology-led-putting-guide' => array('number' => '16', 'label' => 'LED Putting Guide & Practice'),
+        'technology-short-game' => array('number' => '17', 'label' => 'Short-Game Practice'),
+        'technology-unreal-graphics' => array('number' => '18', 'label' => 'Unreal Engine 5 Graphics'),
+        'technology-zero-latency' => array('number' => '19', 'label' => 'Zero-Latency Gameplay'),
+        'technology-touchscreen' => array('number' => '20', 'label' => 'Touchscreen Control'),
+        'technology-keypad' => array('number' => '21', 'label' => 'Player Keypad'),
+        'technology-course-info' => array('number' => '22', 'label' => 'Course Information'),
+        'technology-putt-off-green' => array('number' => '23', 'label' => 'Putt From Off the Green'),
+        'technology-arcade-plus' => array('number' => '24', 'label' => 'Arcade Plus'),
+    );
+}
+
+function golf_simulator_theme_add_golf_technology_feature_gifs_box($post) {
+    if (!golf_simulator_theme_is_golf_technology_page($post)) {
+        return;
+    }
+
+    add_meta_box(
+        'golf_simulator_technology_feature_gifs',
+        __('Feature GIFs', 'golf-simulator-theme'),
+        'golf_simulator_theme_render_golf_technology_feature_gifs_box',
+        'page',
+        'normal',
+        'high'
+    );
+}
+add_action('add_meta_boxes_page', 'golf_simulator_theme_add_golf_technology_feature_gifs_box');
+
+function golf_simulator_theme_render_golf_technology_feature_gifs_box($post) {
+    wp_nonce_field('golf_simulator_technology_feature_gifs', 'golf_simulator_technology_feature_gifs_nonce');
+    $saved_gifs = get_post_meta($post->ID, '_golf_technology_feature_gifs', true);
+    $saved_gifs = is_array($saved_gifs) ? $saved_gifs : array();
+    if (empty($saved_gifs['technology-led-putting-guide']) && !empty($saved_gifs['technology-putting-practice'])) {
+        $saved_gifs['technology-led-putting-guide'] = $saved_gifs['technology-putting-practice'];
+    }
+    ?>
+    <p><?php esc_html_e('Choose a GIF or image from the Media Library for each feature. Leave a field empty to show no image for that feature.', 'golf-simulator-theme'); ?></p>
+    <div class="golf-technology-feature-gif-fields">
+        <?php foreach (golf_simulator_theme_golf_technology_features() as $feature_id => $feature) : ?>
+            <?php
+            $attachment_id = absint($saved_gifs[$feature_id] ?? 0);
+            $image_url = $attachment_id ? wp_get_attachment_url($attachment_id) : '';
+            $field_id = 'golf-technology-gif-' . sanitize_html_class($feature_id);
+            ?>
+            <div class="golf-technology-feature-gif-field" data-feature="<?php echo esc_attr($feature_id); ?>">
+                <strong><?php echo esc_html($feature['number'] . ' - ' . $feature['label']); ?></strong>
+                <input type="hidden" id="<?php echo esc_attr($field_id); ?>" name="golf_technology_feature_gifs[<?php echo esc_attr($feature_id); ?>]" value="<?php echo esc_attr($attachment_id); ?>">
+                <div class="golf-technology-feature-gif-preview">
+                    <?php if ($image_url) : ?>
+                        <img src="<?php echo esc_url($image_url); ?>" alt="">
+                    <?php endif; ?>
+                </div>
+                <button type="button" class="button golf-technology-feature-gif-select" data-field="<?php echo esc_attr($field_id); ?>"><?php esc_html_e('Choose GIF / Image', 'golf-simulator-theme'); ?></button>
+                <button type="button" class="button-link golf-technology-feature-gif-remove" data-field="<?php echo esc_attr($field_id); ?>"><?php esc_html_e('Remove', 'golf-simulator-theme'); ?></button>
+            </div>
+        <?php endforeach; ?>
+    </div>
+    <?php
+}
+
+function golf_simulator_theme_save_golf_technology_feature_gifs($post_id) {
+    $post = get_post($post_id);
+    if (!golf_simulator_theme_is_golf_technology_page($post)) {
+        return;
+    }
+
+    if (!isset($_POST['golf_simulator_technology_feature_gifs_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['golf_simulator_technology_feature_gifs_nonce'])), 'golf_simulator_technology_feature_gifs')) {
+        return;
+    }
+
+    if ((defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) || wp_is_post_revision($post_id) || !current_user_can('edit_post', $post_id)) {
+        return;
+    }
+
+    $submitted_gifs = isset($_POST['golf_technology_feature_gifs']) && is_array($_POST['golf_technology_feature_gifs'])
+        ? wp_unslash($_POST['golf_technology_feature_gifs'])
+        : array();
+    $saved_gifs = array();
+
+    foreach (golf_simulator_theme_golf_technology_features() as $feature_id => $feature_label) {
+        $attachment_id = absint($submitted_gifs[$feature_id] ?? 0);
+        if ($attachment_id && wp_attachment_is_image($attachment_id)) {
+            $saved_gifs[$feature_id] = $attachment_id;
+        }
+    }
+
+    update_post_meta($post_id, '_golf_technology_feature_gifs', $saved_gifs);
+}
+add_action('save_post_page', 'golf_simulator_theme_save_golf_technology_feature_gifs');
+
+function golf_simulator_theme_golf_technology_feature_gif_admin_assets($hook) {
+    if (!in_array($hook, array('post.php', 'post-new.php'), true)) {
+        return;
+    }
+
+    $post_id = absint($_GET['post'] ?? 0);
+    $post = $post_id ? get_post($post_id) : null;
+    if (!golf_simulator_theme_is_golf_technology_page($post)) {
+        return;
+    }
+
+    wp_enqueue_media();
+    wp_enqueue_script('jquery');
+}
+add_action('admin_enqueue_scripts', 'golf_simulator_theme_golf_technology_feature_gif_admin_assets');
+
+function golf_simulator_theme_golf_technology_feature_gif_admin_script() {
+    $post_id = absint($_GET['post'] ?? 0);
+    $post = $post_id ? get_post($post_id) : null;
+    if (!golf_simulator_theme_is_golf_technology_page($post)) {
+        return;
+    }
+    ?>
+    <script>
+        jQuery(function ($) {
+            $(document).on('click', '.golf-technology-feature-gif-select', function (event) {
+                event.preventDefault();
+                const button = $(this);
+                const frame = wp.media({
+                    title: 'Choose feature GIF or image',
+                    button: { text: 'Use this media' },
+                    library: { type: 'image' },
+                    multiple: false
+                });
+                frame.on('select', function () {
+                    const attachment = frame.state().get('selection').first().toJSON();
+                    $('#' + button.data('field')).val(attachment.id);
+                    button.siblings('.golf-technology-feature-gif-preview').html($('<img>', { src: attachment.url, alt: '' }));
+                });
+                frame.open();
+            });
+
+            $(document).on('click', '.golf-technology-feature-gif-remove', function (event) {
+                event.preventDefault();
+                const button = $(this);
+                $('#' + button.data('field')).val('');
+                button.siblings('.golf-technology-feature-gif-preview').empty();
+            });
+        });
+    </script>
+    <?php
+}
+add_action('admin_footer-post.php', 'golf_simulator_theme_golf_technology_feature_gif_admin_script');
+
+function golf_simulator_theme_render_golf_technology_feature_gif($feature_id) {
+    $features = golf_simulator_theme_golf_technology_features();
+    if (!isset($features[$feature_id])) {
+        return '';
+    }
+
+    $saved_gifs = get_post_meta(get_the_ID(), '_golf_technology_feature_gifs', true);
+    $attachment_id = is_array($saved_gifs) ? absint($saved_gifs[$feature_id] ?? 0) : 0;
+    if (!$attachment_id && 'technology-led-putting-guide' === $feature_id && is_array($saved_gifs)) {
+        $attachment_id = absint($saved_gifs['technology-putting-practice'] ?? 0);
+    }
+    $image_url = $attachment_id ? wp_get_attachment_url($attachment_id) : '';
+    if (!$image_url) {
+        return '';
+    }
+
+    return '<figure class="golf-technology-feature-gif"><img src="' . esc_url($image_url) . '" alt="' . esc_attr($features[$feature_id]['label'] . ' feature GIF') . '" loading="lazy"></figure>';
+}
 
 function golf_simulator_theme_ensure_hours_page() {
     $page = get_page_by_path('hours');
