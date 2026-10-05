@@ -99,7 +99,7 @@ foreach ($user_bookings as $booking) {
         <nav class="account-profile-menu" aria-label="Account sections">
             <a class="account-profile-menu-row" href="#account-membership">
                 <span class="account-menu-icon" aria-hidden="true">♧</span><span>Membership</span>
-                <strong><?php echo $membership ? esc_html($membership->package_name) : 'Founding Member'; ?></strong>
+                <strong><?php echo $membership ? esc_html(golf_simulator_theme_get_membership_package_display_name($membership->package_name)) : 'Founding Member'; ?></strong>
             </a>
             <a class="account-profile-menu-row" href="<?php echo esc_url(function_exists('wc_get_account_endpoint_url') ? wc_get_account_endpoint_url('payment-methods') : home_url('/my-account/payment-methods/')); ?>">
                 <span class="account-menu-icon" aria-hidden="true">▣</span><span>Payment Methods</span>
@@ -182,7 +182,7 @@ foreach ($user_bookings as $booking) {
                 <div class="account-membership-grid">
                     <div>
                         <span class="account-membership-label">Membership Tier</span>
-                        <strong><?php echo esc_html($membership->package_name); ?></strong>
+                        <strong><?php echo esc_html(golf_simulator_theme_get_membership_package_display_name($membership->package_name)); ?></strong>
                     </div>
                     <div>
                         <span class="account-membership-label">Price</span>

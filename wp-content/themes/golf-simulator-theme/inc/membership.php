@@ -330,7 +330,7 @@ function golf_simulator_theme_render_membership_cart_item_data($item_data, $cart
         $is_upgrade = !empty($meta['is_upgrade']);
         $item_data[] = array(
             'key' => $is_upgrade ? __('Membership Upgrade', 'golf-simulator-theme') : __('Membership Tier', 'golf-simulator-theme'),
-            'value' => esc_html($package_name),
+            'value' => esc_html(golf_simulator_theme_get_membership_package_display_name($package_name)),
         );
     }
     return $item_data;
@@ -791,7 +791,7 @@ function golf_simulator_theme_membership_package_settings_page() {
                     ?>
                     <div class="membership-package-admin-grid" style="border:1px solid rgba(15,81,50,0.12); border-radius:12px; padding:16px; background:#fff;">
                         <div class="membership-package-admin-field">
-                            <label><strong><?php echo esc_html($key); ?> <?php esc_html_e('Tier Name', 'golf-simulator-theme'); ?></strong></label>
+                            <label><strong><?php echo esc_html($package['title']); ?> <?php esc_html_e('Tier Name', 'golf-simulator-theme'); ?></strong></label>
                             <input type="text" name="golf_simulator_membership_defaults[<?php echo esc_attr($key); ?>][title]" value="<?php echo esc_attr($package['title']); ?>" />
                         </div>
 
@@ -904,7 +904,7 @@ function golf_simulator_theme_render_membership_admin_page() {
                         <?php $user = get_userdata((int) $member->user_id); ?>
                         <tr>
                             <td><?php echo $user ? esc_html($user->display_name . ' (' . $user->user_email . ')') : esc_html('#' . $member->user_id); ?></td>
-                            <td><?php echo esc_html($member->package_name ?: '—'); ?></td>
+                            <td><?php echo esc_html(golf_simulator_theme_get_membership_package_display_name($member->package_name ?: '—')); ?></td>
                             <td><?php echo esc_html(ucfirst($member->status)); ?></td>
                             <td><?php echo esc_html(ucfirst($member->payment_status)); ?></td>
                             <td><?php echo esc_html($member->payment_date ?: '—'); ?></td>
@@ -930,9 +930,10 @@ function golf_simulator_theme_get_default_membership_package_templates() {
             'billing' => '/Month',
             'featured' => false,
             'features' => array(
-                'Valid Hours: Mon–Fri | 6:00 AM–5:00 PM',
-                '1 Hour Per Day During Off-Peak Hours',
-                'Bring Up To 3 Guests Free',
+                '24/7 Access',
+                '1 Hour Per Day Anytime',
+                'Additional Guests: $15/guest/hr (max 3)',
+                'Reservations Available 7 Days in Advance',
                 'Free Standard Club Rentals',
                 'Premium Club Rentals for $25',
             ),
@@ -944,9 +945,10 @@ function golf_simulator_theme_get_default_membership_package_templates() {
             'billing' => '/Month',
             'featured' => true,
             'features' => array(
-                'Valid Hours: Anytime',
+                '24/7 Access',
                 '1 Hour Per Day Anytime',
-                'Bring Up To 3 Guests Free',
+                'Bring 1 Guest Free',
+                'Additional Guests: $15/guest/hr (max 2)',
                 'Free Standard Club Rentals',
                 'Free Premium Club Rentals',
                 'Reservations Available 14 Days in Advance',
@@ -954,18 +956,19 @@ function golf_simulator_theme_get_default_membership_package_templates() {
             ),
         ),
         'ALBATROSS' => array(
-            'title' => 'ALBATROSS',
+            'title' => 'EAGLE',
             'price' => '499',
             'discount_price' => '399',
             'billing' => '/Month',
             'featured' => false,
             'features' => array(
-                'Valid Hours: Anytime',
+                '24/7 Access',
                 '2 Hours Per Day Anytime',
-                'Bring Up To 3 Guests Free',
+                'Bring 2 Guests Free',
+                'Additional Guests: $15/guest/hr (max 1)',
                 'Free Standard Club Rentals',
                 'Free Premium Club Rentals',
-                'Reservations Available 30 Days in Advance',
+                'Reservations Available 21 Days in Advance',
                 '20% Off Merchandise Purchases',
                 'Annual Membership: $5,000 — Save $1,000',
             ),
@@ -994,7 +997,14 @@ function golf_simulator_theme_get_default_membership_packages() {
         }
     }
 
+    $defaults['ALBATROSS']['title'] = 'EAGLE';
+
     return $defaults;
+}
+
+function golf_simulator_theme_get_membership_package_display_name($package_name) {
+    $packages = golf_simulator_theme_get_default_membership_packages();
+    return $packages[$package_name]['title'] ?? $package_name;
 }
 
 function golf_simulator_theme_validate_membership_prices($regular_price, $discount_price) {
@@ -1031,6 +1041,26 @@ function golf_simulator_theme_ensure_default_membership_packages() {
             'suppress_filters' => false,
         ));
 
+        if (empty($package_query) && 'ALBATROSS' === $package_key) {
+            $package_query = get_posts(array(
+                'post_type' => 'membership_package',
+                'post_status' => 'any',
+                'posts_per_page' => 1,
+                'meta_key' => '_membership_default_key',
+                'meta_value' => 'ALBATROSS',
+                'suppress_filters' => false,
+            ));
+            if (empty($package_query)) {
+                $package_query = get_posts(array(
+                    'post_type' => 'membership_package',
+                    'post_status' => 'any',
+                    'posts_per_page' => 1,
+                    'title' => 'ALBATROSS',
+                    'suppress_filters' => false,
+                ));
+            }
+        }
+
         $post_id = !empty($package_query) ? $package_query[0]->ID : wp_insert_post(array(
             'post_type' => 'membership_package',
             'post_status' => 'publish',
@@ -1039,6 +1069,9 @@ function golf_simulator_theme_ensure_default_membership_packages() {
         ));
 
         if (!is_wp_error($post_id) && $post_id) {
+            if ('ALBATROSS' === $package_key && 'EAGLE' !== get_the_title($post_id)) {
+                wp_update_post(array('ID' => $post_id, 'post_title' => 'EAGLE', 'post_name' => 'eagle'));
+            }
             update_post_meta($post_id, '_membership_default_key', $package_key);
             $existing_price = get_post_meta($post_id, '_membership_price', true);
             $existing_discount = get_post_meta($post_id, '_membership_discount_price', true);
@@ -1069,6 +1102,46 @@ function golf_simulator_theme_ensure_default_membership_packages() {
     }
 }
 add_action('init', 'golf_simulator_theme_ensure_default_membership_packages');
+
+function golf_simulator_theme_migrate_membership_booking_rules() {
+    $migration_version = 'member-booking-rules-v3';
+    if (get_option('golf_simulator_membership_rules_version') === $migration_version) {
+        return;
+    }
+
+    $templates = golf_simulator_theme_get_default_membership_package_templates();
+    $saved_defaults = get_option('golf_simulator_membership_package_defaults', array());
+    $saved_defaults = is_array($saved_defaults) ? $saved_defaults : array();
+
+    foreach (array('PAR', 'BIRDIE', 'ALBATROSS') as $package_key) {
+        $saved_defaults[$package_key] = array_merge($templates[$package_key], $saved_defaults[$package_key] ?? array());
+        $saved_defaults[$package_key]['title'] = $templates[$package_key]['title'];
+        $saved_defaults[$package_key]['features'] = implode("\n", $templates[$package_key]['features']);
+    }
+    update_option('golf_simulator_membership_package_defaults', $saved_defaults);
+
+    $package_posts = get_posts(array(
+        'post_type' => 'membership_package',
+        'post_status' => 'any',
+        'posts_per_page' => -1,
+    ));
+    foreach ($package_posts as $package_post) {
+        $default_key = get_post_meta($package_post->ID, '_membership_default_key', true);
+        if (!$default_key && in_array($package_post->post_title, array('PAR', 'ALBATROSS', 'EAGLE'), true)) {
+            $default_key = 'EAGLE' === $package_post->post_title ? 'ALBATROSS' : $package_post->post_title;
+        }
+        if (isset($templates[$default_key])) {
+            update_post_meta($package_post->ID, '_membership_features', implode("\n", $templates[$default_key]['features']));
+            update_post_meta($package_post->ID, '_membership_default_key', $default_key);
+            if ('ALBATROSS' === $default_key && 'EAGLE' !== $package_post->post_title) {
+                wp_update_post(array('ID' => $package_post->ID, 'post_title' => 'EAGLE', 'post_name' => 'eagle'));
+            }
+        }
+    }
+
+    update_option('golf_simulator_membership_rules_version', $migration_version);
+}
+add_action('init', 'golf_simulator_theme_migrate_membership_booking_rules', 20);
 
 function golf_simulator_theme_membership_price_markup($post_id) {
     $title = get_the_title($post_id);
@@ -1118,7 +1191,8 @@ function golf_simulator_theme_render_membership_package_meta_box($post) {
     $featured = get_post_meta($post->ID, '_membership_featured', true);
     $features = get_post_meta($post->ID, '_membership_features', true);
     $defaults = golf_simulator_theme_get_default_membership_packages();
-    $default_package = $defaults[get_the_title($post->ID)] ?? array();
+    $default_key = get_post_meta($post->ID, '_membership_default_key', true);
+    $default_package = $defaults[$default_key] ?? ($defaults[get_the_title($post->ID)] ?? array());
     $has_discount_meta = metadata_exists('post', $post->ID, '_membership_discount_price');
     ?>
     <div class="membership-package-admin-box">
@@ -1173,10 +1247,11 @@ function golf_simulator_theme_save_membership_package_meta($post_id) {
 
     if (isset($_POST['reset_membership_defaults']) && '1' === $_POST['reset_membership_defaults']) {
         $defaults = golf_simulator_theme_get_default_membership_packages();
+        $default_key = get_post_meta($post_id, '_membership_default_key', true);
         $title = get_the_title($post_id);
 
-        if (isset($defaults[$title])) {
-            $package = $defaults[$title];
+        if (isset($defaults[$default_key]) || isset($defaults[$title])) {
+            $package = $defaults[$default_key] ?? $defaults[$title];
             update_post_meta($post_id, '_membership_price', $package['price']);
             update_post_meta($post_id, '_membership_discount_price', $package['discount_price']);
             update_post_meta($post_id, '_membership_billing', $package['billing']);
@@ -1236,6 +1311,10 @@ function golf_simulator_theme_get_membership_package_data($post_id) {
     $featured = (bool) get_post_meta($post_id, '_membership_featured', true);
     $features = get_post_meta($post_id, '_membership_features', true);
     $has_discount_meta = metadata_exists('post', $post_id, '_membership_discount_price');
+    $package_key = $default_key ?: $title;
+    if ('EAGLE' === $title && !$default_key) {
+        $package_key = 'ALBATROSS';
+    }
 
     if (empty($features)) {
         $features = $default_package['features'] ?? array();
@@ -1252,7 +1331,7 @@ function golf_simulator_theme_get_membership_package_data($post_id) {
         'featured' => $featured || ($default_package['featured'] ?? false),
         'features' => $features,
         'thumbnail_id' => absint($default_package['thumbnail_id'] ?? 0),
-        'link' => add_query_arg('package', rawurlencode($title), home_url('/membership')),
+        'link' => add_query_arg('package', rawurlencode($package_key), home_url('/membership')),
     );
 }
 
@@ -1274,7 +1353,7 @@ function golf_simulator_theme_render_membership_manager() {
         <?php if ($membership) : ?>
             <p>
                 <strong><?php esc_html_e('Current package:', 'golf-simulator-theme'); ?></strong>
-                <?php echo esc_html($membership->package_name); ?>
+                <?php echo esc_html(golf_simulator_theme_get_membership_package_display_name($membership->package_name)); ?>
                 <br>
                 <strong><?php esc_html_e('Status:', 'golf-simulator-theme'); ?></strong>
                 <?php echo esc_html(ucfirst($membership->status)); ?>
@@ -1437,7 +1516,7 @@ function golf_simulator_theme_send_membership_confirmation($user_id, $package_na
     $account_url = home_url('/my-account/');
     $body = '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">Hi ' . esc_html($user->display_name) . ', your Tee Time Nexus membership update has been received.</p>'
         . '<table style="width:100%;border-collapse:collapse;margin:0 0 22px;font-size:15px;color:#4b5563;">'
-        . '<tr><td style="padding:6px 0;"><strong>Membership</strong></td><td style="padding:6px 0;text-align:right;">' . esc_html($package_name) . '</td></tr>'
+        . '<tr><td style="padding:6px 0;"><strong>Membership</strong></td><td style="padding:6px 0;text-align:right;">' . esc_html(golf_simulator_theme_get_membership_package_display_name($package_name)) . '</td></tr>'
         . '<tr><td style="padding:6px 0;"><strong>Amount</strong></td><td style="padding:6px 0;text-align:right;">$' . esc_html(number_format((float) $amount, 2)) . '</td></tr>'
         . '<tr><td style="padding:6px 0;"><strong>Payment status</strong></td><td style="padding:6px 0;text-align:right;">' . esc_html(ucfirst($payment_status)) . '</td></tr>'
         . '</table>';

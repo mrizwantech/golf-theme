@@ -812,6 +812,9 @@ function ttn_save_booking_metadata($post_id, $booking_data) {
     if (isset($booking_data['total_price'])) {
         update_post_meta($post_id, 'ttn_booking_total_price', $booking_data['total_price']);
     }
+    if (isset($booking_data['guest_charge'])) {
+        update_post_meta($post_id, 'ttn_booking_guest_charge', max(0, (float) $booking_data['guest_charge']));
+    }
     if (isset($booking_data['payment_status'])) {
         update_post_meta($post_id, 'ttn_booking_payment_status', $booking_data['payment_status']);
     }
@@ -829,8 +832,8 @@ function ttn_save_booking_metadata($post_id, $booking_data) {
     }
 }
 
-function ttn_booking_get_time_slots() {
-    $slots = array(
+function ttn_booking_get_public_time_slots() {
+    return array(
         array('label' => '10:00 AM', 'start' => '10:00'),
         array('label' => '11:00 AM', 'start' => '11:00'),
         array('label' => '12:00 PM', 'start' => '12:00'),
@@ -844,7 +847,98 @@ function ttn_booking_get_time_slots() {
         array('label' => '8:00 PM', 'start' => '20:00'),
         array('label' => '9:00 PM', 'start' => '21:00'),
     );
+}
+
+function ttn_booking_get_all_time_slots() {
+    $slots = array();
+    for ($hour = 0; $hour < 24; $hour++) {
+        $display_hour = $hour % 12 ?: 12;
+        $period = $hour < 12 ? 'AM' : 'PM';
+        $slots[] = array(
+            'label' => $display_hour . ':00 ' . $period,
+            'start' => sprintf('%02d:00', $hour),
+        );
+    }
+
     return apply_filters('ttn_get_time_slots', $slots);
+}
+
+function ttn_booking_get_paid_membership_package_name($user_id) {
+    if (!$user_id || !function_exists('golf_simulator_theme_get_user_membership_record')) {
+        return '';
+    }
+
+    $membership = golf_simulator_theme_get_user_membership_record($user_id);
+    if (!$membership || 'active' !== ($membership->status ?? '') || 'paid' !== ($membership->payment_status ?? '')) {
+        return '';
+    }
+
+    $package_name = strtoupper((string) $membership->package_name);
+    return 'EAGLE' === $package_name ? 'ALBATROSS' : $package_name;
+}
+
+function ttn_booking_get_time_slots($user_id = null) {
+    $user_id = null === $user_id ? get_current_user_id() : absint($user_id);
+    if (ttn_booking_get_paid_membership_package_name($user_id)) {
+        return ttn_booking_get_all_time_slots();
+    }
+
+    return apply_filters('ttn_get_time_slots', ttn_booking_get_public_time_slots());
+}
+
+function ttn_booking_get_member_daily_free_hours($user_id) {
+    $allowances = array('PAR' => 1, 'BIRDIE' => 1, 'ALBATROSS' => 2);
+    $package_name = ttn_booking_get_paid_membership_package_name($user_id);
+    return $allowances[$package_name] ?? 0;
+}
+
+function ttn_booking_get_member_included_guest_count($user_id) {
+    $included_guests = array('PAR' => 0, 'BIRDIE' => 1, 'ALBATROSS' => 2);
+    $package_name = ttn_booking_get_paid_membership_package_name($user_id);
+    return $included_guests[$package_name] ?? 0;
+}
+
+function ttn_booking_get_membership_booking_window_days($user_id) {
+    $package_name = ttn_booking_get_paid_membership_package_name($user_id);
+    $windows = array('PAR' => 7, 'BIRDIE' => 14, 'ALBATROSS' => 21);
+    return $windows[$package_name] ?? 0;
+}
+
+function ttn_booking_get_membership_max_booking_date($user_id) {
+    $window_days = ttn_booking_get_membership_booking_window_days($user_id);
+    if (!$window_days) {
+        return '';
+    }
+
+    $timezone = wp_timezone();
+    $today = new DateTimeImmutable(current_time('Y-m-d'), $timezone);
+    return $today->modify('+' . $window_days . ' days')->format('Y-m-d');
+}
+
+function ttn_booking_is_date_within_membership_window($user_id, $date) {
+    $window_days = ttn_booking_get_membership_booking_window_days($user_id);
+    if (!$window_days) {
+        return true;
+    }
+
+    $timezone = wp_timezone();
+    $selected_date = DateTimeImmutable::createFromFormat('!Y-m-d', (string) $date, $timezone);
+    if (!$selected_date || $selected_date->format('Y-m-d') !== $date) {
+        return false;
+    }
+
+    $today = new DateTimeImmutable(current_time('Y-m-d'), $timezone);
+    return $selected_date >= $today && $selected_date <= $today->modify('+' . $window_days . ' days');
+}
+
+function ttn_booking_get_member_guest_charge($user_id, $players, $duration) {
+    if (!ttn_booking_get_paid_membership_package_name($user_id)) {
+        return 0.0;
+    }
+
+    $guest_count = min(3, max(0, absint($players) - 1));
+    $chargeable_guests = max(0, $guest_count - ttn_booking_get_member_included_guest_count($user_id));
+    return $chargeable_guests * 15 * max(1, min(8, absint($duration)));
 }
 
 function ttn_booking_get_bays() {
@@ -1036,7 +1130,7 @@ function ttn_booking_is_slot_in_past($date, $time_start) {
  * Hours remaining between now and a booking's scheduled start (negative if already started/past).
  */
 function ttn_booking_hours_until_start($date, $time_label) {
-    $time_slots = ttn_booking_get_time_slots();
+    $time_slots = ttn_booking_get_all_time_slots();
     $slot_index = array_search(ttn_normalize_string($time_label), array_map('ttn_normalize_string', array_column($time_slots, 'label')), true);
     if ($slot_index === false) {
         return null;
@@ -1082,9 +1176,15 @@ function ttn_booking_check_availability_for_duration($bay, $date, $start_time_la
         return false; // Invalid start time
     }
 
-    // Check if we have enough slots for the requested duration
-    if ($start_index + $duration > count($time_slots)) {
+    $slot_count = count($time_slots);
+    $allows_overnight = $slot_count === 24 && ($time_slots[0]['start'] ?? '') === '00:00';
+    if (!$slot_count || (!$allows_overnight && $start_index + $duration > $slot_count)) {
         return false; // Not enough slots remaining
+    }
+
+    $booking_date = DateTimeImmutable::createFromFormat('!Y-m-d', $date, wp_timezone());
+    if (!$booking_date) {
+        return false;
     }
 
     // Normalize bay name for comparison
@@ -1092,11 +1192,14 @@ function ttn_booking_check_availability_for_duration($bay, $date, $start_time_la
 
     // Check if ANY of the consecutive slots are booked
     for ($i = 0; $i < $duration; $i++) {
-        $slot = $time_slots[$start_index + $i];
+        $absolute_index = $start_index + $i;
+        $day_offset = intdiv($absolute_index, $slot_count);
+        $slot = $time_slots[$absolute_index % $slot_count];
+        $slot_date = $booking_date->modify('+' . $day_offset . ' days')->format('Y-m-d');
         
         // Check if this slot is booked
         foreach ($bookings as $booking) {
-            if ($booking['date'] === $date) {
+            if ($booking['date'] === $slot_date) {
                 $booking_bay = ttn_normalize_bay_name(isset($booking['bay_key']) ? $booking['bay_key'] : $booking['bay']);
                 
                 if ($booking_bay === $bay_normalized && $booking['time'] === $slot['label']) {
@@ -1183,29 +1286,16 @@ function ttn_booking_get_member_free_hours($user_id, $date, $time, $duration) {
         return 0;
     }
 
-    $membership = golf_simulator_theme_get_user_membership_record($user_id);
-    if (!$membership || $membership->status !== 'active' || $membership->payment_status !== 'paid') {
-        return 0;
-    }
-
-    $daily_allowances = array('PAR' => 1, 'BIRDIE' => 1, 'ALBATROSS' => 2);
-    $daily_allowance = $daily_allowances[$membership->package_name] ?? 0;
+    $package_name = ttn_booking_get_paid_membership_package_name($user_id);
+    $daily_allowance = ttn_booking_get_member_daily_free_hours($user_id);
     if (!$daily_allowance) {
         return 0;
     }
 
-    $time_slots = ttn_booking_get_time_slots();
+    $time_slots = ttn_booking_get_time_slots($user_id);
     $slot_index = array_search($time, array_column($time_slots, 'label'), true);
     if ($slot_index === false) {
         return 0;
-    }
-
-    if ($membership->package_name === 'PAR') {
-        $weekday = (int) wp_date('N', strtotime($date));
-        $start_hour = (int) substr($time_slots[$slot_index]['start'], 0, 2);
-        if ($weekday > 5 || $start_hour < 6 || $start_hour >= 17) {
-            return 0;
-        }
     }
 
     $used_hours = 0;
@@ -1270,6 +1360,8 @@ function ttn_booking_add_to_cart_and_redirect($bay_name, $booking_data = array()
                 'players' => isset($booking_data['players']) ? max(1, min(4, intval($booking_data['players']))) : 1,
                 'club_preference' => isset($booking_data['club_preference']) ? sanitize_key($booking_data['club_preference']) : 'own-clubs',
                 'member_free_hours' => isset($booking_data['member_free_hours']) ? max(0, intval($booking_data['member_free_hours'])) : 0,
+                'member_guest_charge' => isset($booking_data['member_guest_charge']) ? max(0, (float) $booking_data['member_guest_charge']) : 0,
+                'member_overnight' => !empty($booking_data['member_overnight']),
                 'signature' => isset($booking_data['signature']) ? sanitize_file_name($booking_data['signature']) : '',
                 'terms_accepted_at' => isset($booking_data['terms_accepted_at']) ? $booking_data['terms_accepted_at'] : '',
             );
@@ -1337,7 +1429,8 @@ function ttn_booking_set_cart_item_price($cart) {
         } elseif (!empty($cart_item['ttn_booking']['bay']) && isset($cart_item['data'])) {
             $duration = max(1, min(8, intval($cart_item['ttn_booking']['duration'] ?? 1)));
             $free_hours = max(0, min($duration, intval($cart_item['ttn_booking']['member_free_hours'] ?? 0)));
-            $cart_item['data']->set_price(ttn_booking_get_hourly_price($cart_item['ttn_booking']['bay']) * ($duration - $free_hours));
+            $guest_charge = max(0, (float) ($cart_item['ttn_booking']['member_guest_charge'] ?? 0));
+            $cart_item['data']->set_price(ttn_booking_get_hourly_price($cart_item['ttn_booking']['bay']) * ($duration - $free_hours) + $guest_charge);
         }
     }
 }
@@ -1365,6 +1458,12 @@ function ttn_booking_render_cart_item_data($item_data, $cart_item) {
                 'value' => esc_html($booking['member_free_hours'] . ' free ' . ($booking['member_free_hours'] === 1 ? 'hour' : 'hours')),
             );
         }
+        if (!empty($booking['member_guest_charge'])) {
+            $item_data[] = array(
+                'key' => __('Additional guest charge', 'tee-time-nexus-bookings'),
+                'value' => wc_price((float) $booking['member_guest_charge']),
+            );
+        }
     }
 
     return $item_data;
@@ -1390,6 +1489,8 @@ function ttn_booking_store_order_line_data($item, $cart_item_key, $values, $orde
         $item->add_meta_data('ttn_booking_players', $booking['players']);
         $item->add_meta_data('ttn_booking_club_preference', $booking['club_preference'] ?? 'own-clubs');
         $item->add_meta_data('ttn_booking_member_free_hours', $booking['member_free_hours'] ?? 0);
+        $item->add_meta_data('_ttn_booking_member_guest_charge', $booking['member_guest_charge'] ?? 0);
+        $item->add_meta_data('_ttn_booking_member_overnight', !empty($booking['member_overnight']) ? '1' : '0');
         // Underscore-prefixed so WooCommerce hides these from the customer-facing order view.
         if (!empty($booking['signature'])) {
             $item->add_meta_data('_ttn_booking_signature', $booking['signature']);
@@ -1424,6 +1525,26 @@ function ttn_booking_start_woocommerce_checkout() {
     }
 
     $current_user_id = get_current_user_id();
+    $selected_date = DateTimeImmutable::createFromFormat('!Y-m-d', $date, wp_timezone());
+    $today = new DateTimeImmutable(current_time('Y-m-d'), wp_timezone());
+    $time_slots = ttn_booking_get_time_slots($current_user_id);
+    $slot_index = array_search($time, array_column($time_slots, 'label'), true);
+    if (
+        !$selected_date
+        || $selected_date->format('Y-m-d') !== $date
+        || $selected_date < $today
+        || !ttn_booking_is_date_within_membership_window($current_user_id, $date)
+        || false === $slot_index
+        || ttn_booking_is_slot_in_past($date, $time_slots[$slot_index]['start'])
+        || !ttn_booking_check_availability_for_duration($bay, $date, $time, $duration, $time_slots, ttn_booking_get_booking_records())
+    ) {
+        wp_safe_redirect(add_query_arg(array(
+            'booking_error' => 'invalid-selection',
+            'booking_error_message' => rawurlencode(__('That date or time is unavailable for your membership. Please choose another reservation.', 'tee-time-nexus-bookings')),
+        ), home_url('/book-a-bay/')));
+        exit;
+    }
+
     $reuse_verification_on_file = !empty($_POST['ttn_use_verification_on_file'])
         && ttn_booking_user_has_verification_on_file($current_user_id);
 
@@ -1456,6 +1577,8 @@ function ttn_booking_start_woocommerce_checkout() {
     }
 
     $member_free_hours = ttn_booking_get_member_free_hours($current_user_id, $date, $time, $duration);
+    $member_guest_charge = ttn_booking_get_member_guest_charge($current_user_id, $players, $duration);
+    $member_overnight = (bool) $member_package_name;
 
     $checkout_url = ttn_booking_add_to_cart_and_redirect($bay, array(
         'bay' => $bay,
@@ -1465,6 +1588,8 @@ function ttn_booking_start_woocommerce_checkout() {
         'players' => $players,
         'club_preference' => $club_preference,
         'member_free_hours' => $member_free_hours,
+        'member_guest_charge' => $member_guest_charge,
+        'member_overnight' => $member_overnight,
         'signature' => $signature_filename,
         'terms_accepted_at' => $terms_accepted_at,
     ));
@@ -1546,26 +1671,36 @@ function ttn_booking_process_wc_order($order_id) {
         $players = max(1, min(4, intval($item->get_meta('ttn_booking_players'))));
         $club_preference = $item->get_meta('ttn_booking_club_preference') ?: 'own-clubs';
         $member_free_hours = max(0, min($duration, intval($item->get_meta('ttn_booking_member_free_hours'))));
+        $member_guest_charge = max(0, (float) $item->get_meta('_ttn_booking_member_guest_charge'));
+        $member_overnight = '1' === $item->get_meta('_ttn_booking_member_overnight');
 
         if (!$bay || !$date || !$time || !ttn_booking_get_bay_config($bay)) {
             continue;
         }
 
-        $time_slots = ttn_booking_get_time_slots();
+        $time_slots = $member_overnight ? ttn_booking_get_all_time_slots() : ttn_booking_get_public_time_slots();
         $start_index = array_search($time, array_column($time_slots, 'label'), true);
-        if ($start_index === false || $start_index + $duration > count($time_slots)) {
+        if ($start_index === false || (!$member_overnight && $start_index + $duration > count($time_slots))) {
             $order->add_order_note(__('Booking was not created because its saved time selection is invalid.', 'tee-time-nexus-bookings'));
             continue;
         }
 
-        $total_price = ($duration - $member_free_hours) * ttn_booking_get_hourly_price($bay);
+        $booking_start_date = DateTimeImmutable::createFromFormat('!Y-m-d', $date, wp_timezone());
+        if (!$booking_start_date) {
+            $order->add_order_note(__('Booking was not created because its saved date is invalid.', 'tee-time-nexus-bookings'));
+            continue;
+        }
+
+        $total_price = (($duration - $member_free_hours) * ttn_booking_get_hourly_price($bay)) + $member_guest_charge;
         $parent_booking_id = 0;
         for ($index = 0; $index < $duration; $index++) {
-            $slot = $time_slots[$start_index + $index];
+            $absolute_slot_index = $start_index + $index;
+            $slot = $time_slots[$absolute_slot_index % count($time_slots)];
+            $slot_date = $booking_start_date->modify('+' . intdiv($absolute_slot_index, count($time_slots)) . ' days')->format('Y-m-d');
             $booking_id = wp_insert_post(array(
                 'post_type' => 'ttn_booking',
                 'post_status' => 'publish',
-                'post_title' => $customer_name . ' - ' . $bay . ' - ' . $date,
+                'post_title' => $customer_name . ' - ' . $bay . ' - ' . $slot_date,
             ), true);
 
             if (is_wp_error($booking_id)) {
@@ -1577,12 +1712,13 @@ function ttn_booking_process_wc_order($order_id) {
                 'phone' => $customer_phone,
                 'email' => $customer_email,
                 'bay' => $bay,
-                'date' => $date,
+                'date' => $slot_date,
                 'time' => $slot['label'],
                 'duration' => $duration,
                 'players' => $players,
                 'club_preference' => $club_preference,
                 'member_free_hours' => $member_free_hours,
+                'guest_charge' => $member_guest_charge,
                 'member_booking' => function_exists('golf_simulator_theme_get_user_membership_record') && $user_id && ($membership = golf_simulator_theme_get_user_membership_record($user_id)) && $membership->status === 'active' ? '1' : '0',
                 'total_price' => $total_price,
                 'payment_status' => 'Paid',
@@ -1731,7 +1867,17 @@ function ttn_booking_extension_return_url($return_url, $order) {
 add_filter('woocommerce_get_return_url', 'ttn_booking_extension_return_url', 15, 2);
 
 function ttn_booking_shortcode() {
-    $time_slots = ttn_booking_get_time_slots();
+    $current_user_id = get_current_user_id();
+    $member_package_name = ttn_booking_get_paid_membership_package_name($current_user_id);
+    $is_paid_member = (bool) $member_package_name;
+    $member_daily_free_hours = ttn_booking_get_member_daily_free_hours($current_user_id);
+    $member_included_guest_count = ttn_booking_get_member_included_guest_count($current_user_id);
+    $member_booking_window_days = ttn_booking_get_membership_booking_window_days($current_user_id);
+    $member_guest_rule = $member_included_guest_count
+        ? sprintf('%d guest%s included; additional guests are $15 per guest per hour', $member_included_guest_count, 1 === $member_included_guest_count ? '' : 's')
+        : 'Guests are $15 per guest per hour';
+    $member_max_booking_date = ttn_booking_get_membership_max_booking_date($current_user_id);
+    $time_slots = ttn_booking_get_time_slots($current_user_id);
     $bays = ttn_booking_get_bays();
     $default_date = current_time('Y-m-d');
     $confirmed = isset($_GET['booking']) && $_GET['booking'] === 'confirmed';
@@ -1777,10 +1923,10 @@ function ttn_booking_shortcode() {
     // Get booking records using the centralized function
     $booking_records = ttn_booking_get_booking_records();
     $current_member = is_user_logged_in() && function_exists('golf_simulator_theme_get_user_membership_record')
-        ? golf_simulator_theme_get_user_membership_record(get_current_user_id())
+        ? golf_simulator_theme_get_user_membership_record($current_user_id)
         : null;
-    $has_active_membership = $current_member && ($current_member->status ?? '') === 'active';
-    $skip_verification = is_user_logged_in() && ttn_booking_user_has_verification_on_file(get_current_user_id());
+    $has_active_membership = $current_member && ($current_member->status ?? '') === 'active' && ($current_member->payment_status ?? '') === 'paid';
+    $skip_verification = is_user_logged_in() && ttn_booking_user_has_verification_on_file($current_user_id);
 
     ob_start();
     ?>
@@ -1895,7 +2041,7 @@ function ttn_booking_shortcode() {
 
         <div class="booking-section" id="ttn-date-section" hidden>
             <h3>Select Date</h3>
-            <input type="date" id="ttn-date" min="<?php echo esc_attr($default_date); ?>" required>
+            <input type="date" id="ttn-date" min="<?php echo esc_attr($default_date); ?>" <?php echo $member_max_booking_date ? 'max="' . esc_attr($member_max_booking_date) . '"' : ''; ?> required>
         </div>
 
         <div class="booking-section" id="ttn-duration-section" hidden>
@@ -1912,6 +2058,7 @@ function ttn_booking_shortcode() {
 
         <div class="booking-section" id="ttn-players-section" hidden>
             <h3>Players</h3>
+            <p class="booking-note">Includes the person booking and up to 3 guests (4 players total).</p>
             <div class="player-selector" id="ttn-player-selector">
                 <?php for ($p = 1; $p <= 4; $p++) : ?>
                     <label class="player-pill">
@@ -1920,6 +2067,9 @@ function ttn_booking_shortcode() {
                     </label>
                 <?php endfor; ?>
             </div>
+            <?php if ($is_paid_member) : ?>
+                <p class="booking-note">Members can book 24/7 up to <?php echo esc_html($member_booking_window_days); ?> days ahead and receive <?php echo esc_html($member_daily_free_hours); ?> free <?php echo $member_daily_free_hours === 1 ? 'hour' : 'hours'; ?> per day. <?php echo esc_html($member_guest_rule); ?>, up to 3 guests total.</p>
+            <?php endif; ?>
         </div>
 
         <?php if ($has_active_membership) : ?>
@@ -1999,6 +2149,8 @@ function ttn_booking_shortcode() {
     (function () {
         const bookingRecords = <?php echo wp_json_encode($booking_records); ?>;
         const timeSlots = <?php echo wp_json_encode($time_slots); ?>;
+        const isPaidMember = <?php echo wp_json_encode($is_paid_member); ?>;
+        const includedMemberGuests = <?php echo wp_json_encode($member_included_guest_count); ?>;
         const baySelector = document.getElementById('ttn-bay-selector');
         const baySection = document.getElementById('ttn-bay-section');
         const dateSection = document.getElementById('ttn-date-section');
@@ -2020,6 +2172,23 @@ function ttn_booking_shortcode() {
         let selectedDuration = null;
         let selectedPlayers = null;
         let hasSignature = false;
+        const supportsOvernightBookings = isParMember && timeSlots.length === 24 && timeSlots[0].start === '00:00';
+
+        function dateAfterBookingHours(startDate, hours) {
+            const parts = startDate.split('-').map(Number);
+            const date = new Date(parts[0], parts[1] - 1, parts[2] + hours);
+            return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+        }
+
+        function isBookingSlotTaken(bayValue, date, time) {
+            const bayCanonical = (bayValue || '').toLowerCase().replace(/[\s-]+/g, '');
+            return bookingRecords.some(function (item) {
+                const itemBayName = (item.bay || '').toLowerCase().replace(/[\s-]+/g, '');
+                const itemBayKey = (item.bay_key || '').toLowerCase().replace(/[\s-]+/g, '');
+                const matchesBay = itemBayName === bayCanonical || itemBayKey === bayCanonical || item.bay === bayValue;
+                return matchesBay && item.date === date && item.time === time;
+            });
+        }
 
         function hasRequiredVerification() {
             const useOnFile = document.getElementById('ttn-hidden-use-verification-on-file');
@@ -2079,34 +2248,19 @@ function ttn_booking_shortcode() {
 
             const date = dateField.value;
             const today = new Date();
-            const selectedDateObj = new Date(date + 'T00:00:00');
-            const todaysDateObj = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-            const isToday = selectedDateObj.getTime() === todaysDateObj.getTime();
-
-            const bayCanonical = (bay.value || '').toLowerCase().replace(/[\s-]+/g, '');
-            const booked = bookingRecords
-                .filter(item => {
-                    const itemBayName = (item.bay || '').toLowerCase().replace(/[\s-]+/g, '');
-                    const itemBayKey = (item.bay_key || '').toLowerCase().replace(/[\s-]+/g, '');
-                    const matchesBay = (itemBayName === bayCanonical || itemBayKey === bayCanonical || item.bay === bay.value);
-                    return matchesBay && item.date === date;
-                })
-                .map(item => item.time);
-
             durationInputs.forEach(input => {
                 const duration = parseInt(input.value, 10);
                 let hasAvailableSlot = false;
 
                 for (let index = 0; index < timeSlots.length && !hasAvailableSlot; index++) {
-                    if (index + duration > timeSlots.length) break;
-
-                    const slotStartObj = new Date(date + 'T' + timeSlots[index].start);
-                    if (isToday && slotStartObj < today) continue;
+                    if (!supportsOvernightBookings && index + duration > timeSlots.length) break;
 
                     let fits = true;
                     for (let i = 0; i < duration; i++) {
-                        const checkSlot = timeSlots[index + i];
-                        if (checkSlot && booked.includes(checkSlot.label)) {
+                        const absoluteIndex = index + i;
+                        const checkSlot = timeSlots[absoluteIndex % timeSlots.length];
+                        const checkDate = dateAfterBookingHours(date, Math.floor(absoluteIndex / timeSlots.length));
+                        if (new Date(checkDate + 'T' + checkSlot.start) < today || isBookingSlotTaken(bay.value, checkDate, checkSlot.label)) {
                             fits = false;
                             break;
                         }
@@ -2141,36 +2295,17 @@ function ttn_booking_shortcode() {
             selectedPlayers = parseInt(players.value, 10);
 
             const today = new Date();
-            const selectedDateObj = new Date(selectedDate + 'T00:00:00');
-            const todaysDateObj = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-            const isToday = selectedDateObj.getTime() === todaysDateObj.getTime();
-
-            const bayCanonical = (selectedBay || '').toLowerCase().replace(/[\s-]+/g, '');
-            const booked = bookingRecords
-                .filter(item => {
-                    const itemBayName = (item.bay || '').toLowerCase().replace(/[\s-]+/g, '');
-                    const itemBayKey = (item.bay_key || '').toLowerCase().replace(/[\s-]+/g, '');
-                    const matchesBay = (itemBayName === bayCanonical || itemBayKey === bayCanonical || item.bay === selectedBay);
-                    return matchesBay && item.date === selectedDate;
-                })
-                .map(item => item.time);
-
             let availableSlotCount = 0;
             document.querySelectorAll('.time-slot-pill').forEach((btn, index) => {
-                const slotTime = btn.getAttribute('data-time');
-                const slotStart = btn.getAttribute('data-start');
-                const slotStartObj = new Date(selectedDate + 'T' + slotStart);
-                const isPast = isToday && slotStartObj < today;
-
-                // Check if this slot OR any following slots for the duration are booked
                 let isAvailable = true;
-                if (isPast || index + selectedDuration > timeSlots.length) {
+                if (!supportsOvernightBookings && index + selectedDuration > timeSlots.length) {
                     isAvailable = false;
                 } else {
-                    // Check all consecutive slots
                     for (let i = 0; i < selectedDuration; i++) {
-                        const checkSlot = timeSlots[index + i];
-                        if (checkSlot && booked.includes(checkSlot.label)) {
+                        const absoluteIndex = index + i;
+                        const checkSlot = timeSlots[absoluteIndex % timeSlots.length];
+                        const checkDate = dateAfterBookingHours(selectedDate, Math.floor(absoluteIndex / timeSlots.length));
+                        if (new Date(checkDate + 'T' + checkSlot.start) < today || isBookingSlotTaken(selectedBay, checkDate, checkSlot.label)) {
                             isAvailable = false;
                             break;
                         }
@@ -2231,17 +2366,25 @@ function ttn_booking_shortcode() {
             const players = document.querySelector('input[name="players"]:checked')?.value;
             const time = selectedTime || 'No time selected';
             const hourlyPrice = parseFloat(bayInput?.getAttribute('data-price') || 0);
-            const totalPrice = parseInt(duration) * hourlyPrice;
+            const durationHours = parseInt(duration || '0', 10);
+            const playerCount = parseInt(players || '0', 10);
+            const guestCount = isPaidMember ? Math.min(3, Math.max(0, playerCount - 1)) : 0;
+            const chargeableGuests = Math.max(0, guestCount - includedMemberGuests);
+            const guestCharge = chargeableGuests * 15 * durationHours;
+            const totalPrice = (durationHours * hourlyPrice) + guestCharge;
+            const guestChargeLine = guestCharge > 0 ? `<br/>Additional guest charge: $${guestCharge.toFixed(2)}` : '';
+            const creditNote = isPaidMember ? '<br/><small>Daily member credits are applied at checkout; guest charges are additional.</small>' : '';
+            const totalLabel = isPaidMember ? 'Estimated total before member credit' : 'Estimated total';
 
             if (selectedBay && selectedDate && duration && players && selectedTime) {
                 const endTime = calculateEndTimeLabel(selectedTime, duration);
                 
-                summary.innerHTML = `<strong>${bay}</strong><br/>${date} • ${time} - ${endTime} (${duration}h) • ${players}<br/><strong>Total: $${totalPrice}</strong>`;
+                summary.innerHTML = `<strong>${bay}</strong><br/>${date} • ${time} - ${endTime} (${duration}h) • ${players} players${guestChargeLine}<br/><strong>${totalLabel}: $${totalPrice.toFixed(2)}</strong>${creditNote}`;
             } else {
                 if (typeof availableSlotCount !== 'undefined' && availableSlotCount === 0) {
                     summary.innerHTML = `<strong>${bay}</strong><br/>${date} • No ${duration}-hour time blocks available on this date. Please choose another date or fewer hours.`;
                 } else {
-                    summary.innerHTML = '<strong>' + bay + '</strong><br/>' + date + ' • No time selected • ' + players + '<br/><strong>$' + totalPrice + '</strong>';
+                    summary.innerHTML = '<strong>' + bay + '</strong><br/>' + date + ' • No time selected • ' + players + ' players' + guestChargeLine + '<br/><strong>' + totalLabel + ': $' + totalPrice.toFixed(2) + '</strong>' + creditNote;
                 }
             }
 
@@ -2597,8 +2740,14 @@ function ttn_booking_submit() {
     $time = sanitize_text_field(wp_unslash($_POST['time']));
     $notes = sanitize_textarea_field(wp_unslash($_POST['notes']));
     $players = isset($_POST['players']) ? max(1, min(4, intval($_POST['players']))) : 1;
+    $user_id = get_current_user_id();
+    $duration = 1;
 
-    $time_slots = ttn_booking_get_time_slots();
+    if (!ttn_booking_get_bay_config($bay) || !ttn_booking_is_date_within_membership_window($user_id, $date)) {
+        wp_die(__('Please choose a valid bay and a date within your membership reservation window.', 'tee-time-nexus-bookings'));
+    }
+
+    $time_slots = ttn_booking_get_time_slots($user_id);
     $selected_slot = null;
     foreach ($time_slots as $slot) {
         if ($slot['label'] === $time) {
@@ -2615,10 +2764,13 @@ function ttn_booking_submit() {
         wp_die(__('Please choose a future time slot.', 'tee-time-nexus-bookings'));
     }
 
-    $booked_slots = ttn_booking_get_booked_slots($bay, $date);
-    if (in_array($time, $booked_slots, true)) {
+    if (!ttn_booking_check_availability_for_duration($bay, $date, $time, $duration, $time_slots, ttn_booking_get_booking_records())) {
         wp_die(__('That time slot is no longer available. Please choose another time.', 'tee-time-nexus-bookings'));
     }
+
+    $member_free_hours = ttn_booking_get_member_free_hours($user_id, $date, $time, $duration);
+    $member_guest_charge = ttn_booking_get_member_guest_charge($user_id, $players, $duration);
+    $member_overnight = (bool) ttn_booking_get_paid_membership_package_name($user_id);
 
     $post_id = wp_insert_post(array(
         'post_type' => 'ttn_booking',
@@ -2678,6 +2830,11 @@ function ttn_booking_submit() {
         'bay' => $bay,
         'date' => $date,
         'time' => $time,
+        'duration' => $duration,
+        'players' => $players,
+        'member_free_hours' => $member_free_hours,
+        'member_guest_charge' => $member_guest_charge,
+        'member_overnight' => $member_overnight,
         'name' => $name,
         'email' => $email,
     ));
@@ -2817,7 +2974,7 @@ function ttn_render_booking_dashboard() {
     }
 
     $bays = ttn_booking_get_bays();
-    $time_slots = ttn_booking_get_time_slots();
+    $time_slots = ttn_booking_get_all_time_slots();
 
     $all_posts = get_posts(array(
         'post_type' => 'ttn_booking',
@@ -3184,7 +3341,7 @@ function ttn_apply_booking_schedule_update($booking_id, $data) {
     }
 
     // 3. Create new consecutive child posts if duration > 1
-    $time_slots = ttn_booking_get_time_slots();
+    $time_slots = ttn_booking_get_all_time_slots();
     $start_index = 0;
     foreach ($time_slots as $idx => $slot) {
         if ($slot['label'] === $time) {
@@ -3319,7 +3476,7 @@ function ttn_crud_update_user_booking($booking_id, $user_email, $booking_data) {
     }
 
     // Validate date is not in past
-    $time_slots = ttn_booking_get_time_slots();
+    $time_slots = ttn_booking_get_all_time_slots();
     $selected_slot = null;
     $start_index = null;
     $time_normalized = ttn_normalize_string($booking_data['time']);

@@ -17,6 +17,7 @@ require_once get_template_directory() . '/inc/membership.php';
 require_once get_template_directory() . '/inc/auth.php';
 require_once get_template_directory() . '/inc/welcome-signup.php';
 require_once get_template_directory() . '/inc/mobile-membership-api.php';
+require_once get_template_directory() . '/inc/home-content.php';
 
 function golf_simulator_theme_ensure_my_bookings_page() {
     $page = get_page_by_path('my-bookings');
@@ -867,5 +868,4 @@ function golf_simulator_theme_menu() {
         echo '<nav class="site-nav"><ul><li><a href="' . esc_url(home_url('/')) . '">Home</a></li><li><a href="' . esc_url(home_url('/about-us/')) . '">About</a></li><li><a href="' . esc_url(home_url('/golf-technology/')) . '">Golf Technology</a></li><li><a href="' . esc_url(home_url('/hours/')) . '">Hours</a></li><li><a href="' . esc_url(home_url('/contact/')) . '">Contact</a></li></ul></nav>';
     }
 }
-
 

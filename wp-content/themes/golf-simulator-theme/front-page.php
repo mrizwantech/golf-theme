@@ -66,7 +66,7 @@
                 <section class="member-home-panel member-home-membership" aria-labelledby="membership-status-heading">
                     <span class="member-home-membership-icon" aria-hidden="true">&#10022;</span>
                     <div class="member-home-membership-copy">
-                        <h2 id="membership-status-heading"><?php echo $membership ? esc_html($membership->package_name) : 'Founding Member'; ?></h2>
+                        <h2 id="membership-status-heading"><?php echo $membership ? esc_html(golf_simulator_theme_get_membership_package_display_name($membership->package_name)) : 'Founding Member'; ?></h2>
                         <p><?php echo $membership ? esc_html(ucfirst($membership->status) . ' membership') : 'Your membership is ready when you are.'; ?></p>
                     </div>
                     <a href="<?php echo esc_url(home_url('/membership/')); ?>">View membership</a>
@@ -77,32 +77,8 @@
 <?php else : ?>
 <main>
     <?php
-    $slides = array(
-        array(
-            'image' => get_theme_mod('golf_simulator_slide_1_image', 'https://images.unsplash.com/photo-1535131749006-b7f58c99034b?auto=format&fit=crop&w=1600&q=80'),
-            'kicker' => get_theme_mod('golf_simulator_slide_1_kicker', 'Coming Soon'),
-            'heading' => get_theme_mod('golf_simulator_slide_1_heading', 'Grand Opening TBD'),
-            'text' => get_theme_mod('golf_simulator_slide_1_text', 'We are preparing something special for golfers in the area. Check back soon for updates, launch dates, and opening details.'),
-            'button_text' => get_theme_mod('golf_simulator_slide_1_button_1', 'Stay Tuned'),
-            'button_url' => get_theme_mod('golf_simulator_slide_1_button_1_url', home_url('/welcome')),
-        ),
-        array(
-            'image' => get_theme_mod('golf_simulator_slide_2_image', 'https://images.unsplash.com/photo-1593111774278-0b6b02b7961c?auto=format&fit=crop&w=1600&q=80'),
-            'kicker' => get_theme_mod('golf_simulator_slide_2_kicker', 'Early Bird Memberships'),
-            'heading' => get_theme_mod('golf_simulator_slide_2_heading', 'Lock In Your Early Bird Rate'),
-            'text' => get_theme_mod('golf_simulator_slide_2_text', 'Be among the first to join Tee Time Nexus and become a Founding Member. Unlock exclusive Early Bird membership benefits before we open. Become a Founding Member — Early Bird memberships available.'),
-            'button_text' => get_theme_mod('golf_simulator_slide_2_button_1', 'Follow Updates'),
-            'button_url' => get_theme_mod('golf_simulator_slide_2_button_1_url', home_url('/')),
-        ),
-        array(
-            'image' => get_theme_mod('golf_simulator_slide_3_image', 'https://images.unsplash.com/photo-1517466787929-bc90951d0974?auto=format&fit=crop&w=1600&q=80'),
-            'kicker' => get_theme_mod('golf_simulator_slide_3_kicker', 'NEXT-LEVEL INDOOR GOLF'),
-            'heading' => get_theme_mod('golf_simulator_slide_3_heading', 'Technology That Makes Every Shot Feel Real.'),
-            'text' => get_theme_mod('golf_simulator_slide_3_text', 'Experience advanced golf simulation with realistic course conditions designed for a more immersive indoor golf experience.'),
-            'button_text' => get_theme_mod('golf_simulator_slide_3_button_1', 'Watch for Launch'),
-            'button_url' => get_theme_mod('golf_simulator_slide_3_button_1_url', home_url('/')),
-        ),
-    );
+    $home_content = golf_simulator_theme_get_home_content();
+    $slides = $home_content['slides'];
     ?>
     <section class="home-booking-layout container">
         <div class="hero-slider">
@@ -115,8 +91,9 @@
                             <h3><?php echo esc_html($slide['heading']); ?></h3>
                             <p><?php echo esc_html($slide['text']); ?></p>
                             <div class="hero-actions hero-actions-lg">
-                                <a class="btn btn-primary btn-hero" href="<?php echo esc_url(home_url('/membership/')); ?>">Become a Member</a>
-                                <a class="btn btn-secondary btn-hero" href="<?php echo esc_url(home_url('/book-a-bay/')); ?>">Book a Bay</a>
+                                <?php foreach ($slide['actions'] as $action_index => $action) : ?>
+                                    <a class="btn <?php echo $action_index === 0 ? 'btn-primary' : 'btn-secondary'; ?> btn-hero" href="<?php echo esc_url($action['url']); ?>"><?php echo esc_html($action['label']); ?></a>
+                                <?php endforeach; ?>
                             </div>
                         </div>
                     </article>
@@ -129,40 +106,15 @@
 
     <section class="section" id="services">
         <div class="container">
-            <h2 class="section-title">WHERE GOLF MEETS TECHNOLOGY</h2>
-            <h3 class="section-subtitle">Experience the ultimate fusion of cutting-edge golf technology and immersive gameplay.</h3>
+            <h2 class="section-title"><?php echo esc_html($home_content['section']['title']); ?></h2>
+            <h3 class="section-subtitle"><?php echo esc_html($home_content['section']['subtitle']); ?></h3>
             <?php
-            $feature_1_media = get_theme_mod('golf_simulator_feature_1_media', '');
-            $feature_2_media = get_theme_mod('golf_simulator_feature_2_media', '');
-            $feature_3_media = get_theme_mod('golf_simulator_feature_3_media', '');
-            $feature_4_media = get_theme_mod('golf_simulator_feature_4_media', '');
-            $feature_5_media = get_theme_mod('golf_simulator_feature_5_media', '');
-            $feature_6_media = get_theme_mod('golf_simulator_feature_6_media', '');
-
-            $feature_1_title = get_theme_mod('golf_simulator_feature_1_title', '') ?: 'Auto Tee';
-            $feature_1_text = get_theme_mod('golf_simulator_feature_1_text', '') ?: 'The ball automatically tees up after every shot. Spend less time resetting and more time focused on your game, with a smooth and consistent tee-up experience from shot to shot.';
-
-            $feature_2_title = get_theme_mod('golf_simulator_feature_2_title', '') ?: 'Dynamic Swing Plate';
-            $feature_2_text = get_theme_mod('golf_simulator_feature_2_text', '') ?: 'Experience a more realistic golf swing with our dynamic swing plate. The platform moves with the terrain and shot conditions, simulating uneven lies such as uphill, downhill, and sidehill shots. Adjust your stance naturally and experience a more challenging, true-to-life round of golf.';
-
-            $feature_3_title = get_theme_mod('golf_simulator_feature_3_title', '') ?: 'High-Speed Swing Sensors';
-            $feature_3_text = get_theme_mod('golf_simulator_feature_3_text', '') ?: 'Advanced high-speed sensors capture every shot with precision, tracking key ball and club data in real time. Get fast, accurate feedback on your swing, ball flight, speed, launch, and shot performance to help you understand and improve your game.';
-
-            $feature_4_title = get_theme_mod('golf_simulator_feature_4_title', '') ?: 'Realistic Bunker Play';
-            $feature_4_text = get_theme_mod('golf_simulator_feature_4_text', '') ?: 'Take your short game to the next level with realistic bunker conditions that recreate the feel of playing from the sand. Experience authentic shot response, changing ball flight, and the challenge of getting up and down.';
-
-            $feature_5_title = get_theme_mod('golf_simulator_feature_5_title', '') ?: 'Precision Putting';
-            $feature_5_text = get_theme_mod('golf_simulator_feature_5_text', '') ?: 'Dial in your putting with realistic green surfaces designed to replicate the feel of the course. Read the break, control your speed, and build confidence on every putt with accurate roll and natural ball response.';
-
-            $feature_6_title = get_theme_mod('golf_simulator_feature_6_title', '') ?: 'Network Play';
-            $feature_6_text = get_theme_mod('golf_simulator_feature_6_text', '') ?: 'Play together, compete, and enjoy a connected golf experience with friends and other players. Join the same round, track scores in real time, and experience the excitement of head-to-head competition across connected simulator bays.';
-
-            $render_card_media = static function ($media_url, $alt_text) {
+            $render_card_media = static function ($media_url, $alt_text, $media_type) {
                 if (empty($media_url)) {
                     return '';
                 }
-                $is_video = (bool) preg_match('/\.(mp4|webm|ogg)$/i', $media_url);
-                $is_gif = (bool) preg_match('/\.gif(\?.*)?$/i', $media_url);
+                $is_video = $media_type === 'video';
+                $is_gif = $media_type === 'gif';
                 $play_badge = ($is_video || $is_gif)
                     ? '<span class="card-media-badge" aria-hidden="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></span>'
                     : '';
@@ -175,48 +127,15 @@
             };
             ?>
             <div class="grid">
+                <?php foreach ($home_content['panels'] as $panel) : ?>
                 <div class="card has-media" tabindex="0">
-                    <?php echo $render_card_media($feature_1_media, $feature_1_title); ?>
+                    <?php echo $render_card_media($panel['media'], $panel['title'], $panel['media_type']); ?>
                     <div class="card-body">
-                        <div class="kicker"><?php echo esc_html($feature_1_title); ?></div>
-                        <p><?php echo esc_html($feature_1_text); ?></p>
+                        <div class="kicker"><?php echo esc_html($panel['title']); ?></div>
+                        <p><?php echo esc_html($panel['text']); ?></p>
                     </div>
                 </div>
-                <div class="card has-media" tabindex="0">
-                    <?php echo $render_card_media($feature_2_media, $feature_2_title); ?>
-                    <div class="card-body">
-                        <div class="kicker"><?php echo esc_html($feature_2_title); ?></div>
-                        <p><?php echo esc_html($feature_2_text); ?></p>
-                    </div>
-                </div>
-                <div class="card has-media" tabindex="0">
-                    <?php echo $render_card_media($feature_3_media, $feature_3_title); ?>
-                    <div class="card-body">
-                        <div class="kicker"><?php echo esc_html($feature_3_title); ?></div>
-                        <p><?php echo esc_html($feature_3_text); ?></p>
-                    </div>
-                </div>
-                <div class="card has-media" tabindex="0">
-                    <?php echo $render_card_media($feature_4_media, $feature_4_title); ?>
-                    <div class="card-body">
-                        <div class="kicker"><?php echo esc_html($feature_4_title); ?></div>
-                        <p><?php echo esc_html($feature_4_text); ?></p>
-                    </div>
-                </div>
-                <div class="card has-media" tabindex="0">
-                    <?php echo $render_card_media($feature_5_media, $feature_5_title); ?>
-                    <div class="card-body">
-                        <div class="kicker"><?php echo esc_html($feature_5_title); ?></div>
-                        <p><?php echo esc_html($feature_5_text); ?></p>
-                    </div>
-                </div>
-                <div class="card has-media" tabindex="0">
-                    <?php echo $render_card_media($feature_6_media, $feature_6_title); ?>
-                    <div class="card-body">
-                        <div class="kicker"><?php echo esc_html($feature_6_title); ?></div>
-                        <p><?php echo esc_html($feature_6_text); ?></p>
-                    </div>
-                </div>
+                <?php endforeach; ?>
             </div>
         </div>
     </section>
