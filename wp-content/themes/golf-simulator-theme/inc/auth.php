@@ -1,5 +1,22 @@
 <?php
 
+function golf_simulator_theme_password_meets_policy($password) {
+    if (function_exists('ttn_jwt_password_meets_policy')) {
+        return ttn_jwt_password_meets_policy($password);
+    }
+
+    $password = (string) $password;
+    return strlen($password) >= 8
+        && preg_match('/[A-Z]/', $password)
+        && preg_match('/[a-z]/', $password)
+        && preg_match('/[0-9]/', $password)
+        && preg_match('/[^A-Za-z0-9\s]/', $password);
+}
+
+function golf_simulator_theme_password_policy_message() {
+    return __('Password must be at least 8 characters and include an uppercase letter, a lowercase letter, a number, and a symbol.', 'golf-simulator-theme');
+}
+
 // Auto-create the branded login/register pages so a fresh or staging
 // environment never falls back to a non-existent /login/ URL, which is
 // what causes the wp-login.php <-> /login/ redirect loop.
@@ -188,8 +205,8 @@ function golf_simulator_theme_process_register($redirect_to) {
     $sms_opt_in = !empty($_POST['sms_opt_in']);
     $promo_opt_in = !empty($_POST['promo_opt_in']);
 
-    if (!$name || !is_email($email) || strlen($password) < 6) {
-        return __('Please enter your name, a valid email, and a password of at least 6 characters.', 'golf-simulator-theme');
+    if (!$name || !is_email($email) || !golf_simulator_theme_password_meets_policy($password)) {
+        return __('Please enter your name, a valid email, and a password with at least 8 characters, uppercase and lowercase letters, a number, and a symbol.', 'golf-simulator-theme');
     }
 
     if (email_exists($email)) {

@@ -129,7 +129,7 @@ function ttn_booking_maybe_create_account($email, $name, $password, $confirm_pas
         return true;
     }
 
-    if ($password === '' || $password !== $confirm_password || strlen($password) < 6) {
+    if ($password === '' || $password !== $confirm_password || !ttn_jwt_password_meets_policy($password)) {
         return false;
     }
 
@@ -553,8 +553,50 @@ function ttn_booking_register_cpt() {
         'supports' => array('title', 'editor'),
         'capability_type' => 'post',
     ));
+
+    register_post_type('ttn_booking_feedback', array(
+        'labels' => array(
+            'name' => __('Cancellation Feedback', 'tee-time-nexus-bookings'),
+            'singular_name' => __('Cancellation Feedback', 'tee-time-nexus-bookings'),
+        ),
+        'public' => false,
+        'show_ui' => true,
+        'show_in_menu' => false,
+        'supports' => array('title', 'editor', 'author'),
+        'capability_type' => 'post',
+    ));
 }
 add_action('init', 'ttn_booking_register_cpt');
+
+function ttn_booking_save_cancellation_feedback($booking_id, $user_id, $reason, $message) {
+    $reason = is_string($reason) ? sanitize_text_field(wp_unslash($reason)) : '';
+    $message = is_string($message) ? sanitize_textarea_field(wp_unslash($message)) : '';
+    if ($reason === '' && $message === '') {
+        return false;
+    }
+
+    $booking_reference = 'TTN-' . str_pad((string) absint($booking_id), 6, '0', STR_PAD_LEFT);
+    $content = ($reason !== '' ? "Reason: {$reason}\n\n" : '') . ($message !== '' ? "Feedback:\n{$message}" : '');
+    $feedback_id = wp_insert_post(wp_slash(array(
+        'post_type' => 'ttn_booking_feedback',
+        'post_status' => 'private',
+        'post_author' => absint($user_id),
+        'post_title' => sprintf('Cancellation feedback — %s', $booking_reference),
+        'post_content' => $content,
+    )), true);
+
+    if (is_wp_error($feedback_id)) {
+        return false;
+    }
+
+    update_post_meta($feedback_id, '_ttn_feedback_booking_id', absint($booking_id));
+    update_post_meta($feedback_id, '_ttn_feedback_booking_reference', $booking_reference);
+    update_post_meta($feedback_id, '_ttn_feedback_user_id', absint($user_id));
+    update_post_meta($feedback_id, '_ttn_feedback_reason', $reason);
+    update_post_meta($feedback_id, '_ttn_feedback_message', $message);
+
+    return true;
+}
 
 // ===== HELPER FUNCTIONS =====
 
@@ -1861,6 +1903,32 @@ function ttn_booking_extension_return_url($return_url, $order) {
                 return add_query_arg('booking_updated', '1', home_url('/my-account/'));
             }
         }
+
+        if ($order->is_paid()) {
+            foreach ($order->get_items() as $item) {
+                if (!$item->get_meta('ttn_booking_bay')) {
+                    continue;
+                }
+
+                $booking_ids = get_posts(array(
+                    'post_type' => 'ttn_booking',
+                    'post_status' => 'publish',
+                    'posts_per_page' => 1,
+                    'fields' => 'ids',
+                    'meta_query' => array(
+                        array('key' => 'ttn_booking_order_id', 'value' => $order->get_id()),
+                    ),
+                ));
+
+                if (!empty($booking_ids)) {
+                    return add_query_arg(array(
+                        'booking' => 'confirmed',
+                        'id' => (int) $booking_ids[0],
+                        'key' => $order->get_order_key(),
+                    ), home_url('/book-a-bay/'));
+                }
+            }
+        }
     }
     return $return_url;
 }
@@ -1880,8 +1948,9 @@ function ttn_booking_shortcode() {
     $time_slots = ttn_booking_get_time_slots($current_user_id);
     $bays = ttn_booking_get_bays();
     $default_date = current_time('Y-m-d');
-    $confirmed = isset($_GET['booking']) && $_GET['booking'] === 'confirmed';
-    $confirmed_id = isset($_GET['id']) ? intval($_GET['id']) : 0;
+    $confirmed_id = isset($_GET['id']) ? absint($_GET['id']) : 0;
+    $confirmation_key = isset($_GET['key']) ? sanitize_text_field(wp_unslash($_GET['key'])) : '';
+    $confirmed = false;
     $confirmed_booking = null;
 
     $booking_error_code = isset($_GET['booking_error']) ? sanitize_key($_GET['booking_error']) : '';
@@ -1900,9 +1969,18 @@ function ttn_booking_shortcode() {
         }
     }
 
-    if ($confirmed && $confirmed_id) {
+    if (isset($_GET['booking']) && 'confirmed' === sanitize_key(wp_unslash($_GET['booking'])) && $confirmed_id && $confirmation_key) {
         $confirmed_post = get_post($confirmed_id);
-        if ($confirmed_post && $confirmed_post->post_type === 'ttn_booking') {
+        $order_id = $confirmed_post && 'ttn_booking' === $confirmed_post->post_type
+            ? absint(get_post_meta($confirmed_id, 'ttn_booking_order_id', true))
+            : 0;
+        $order = $order_id && function_exists('wc_get_order') ? wc_get_order($order_id) : false;
+        if (
+            $order
+            && $order->is_paid()
+            && hash_equals((string) $order->get_order_key(), $confirmation_key)
+        ) {
+            $confirmed = true;
             $confirmed_booking = array(
                 'id' => $confirmed_id,
                 'reference' => 'TTN-' . str_pad((string) $confirmed_id, 6, '0', STR_PAD_LEFT),
@@ -1942,8 +2020,8 @@ function ttn_booking_shortcode() {
             <div class="booking-success-alert" id="successAlert">
                 <div class="success-icon">✓</div>
                 <div class="success-content">
-                    <h2>Booking Confirmed!</h2>
-                    <p>Your reservation has been successfully booked and paid.</p>
+                    <h2>Your Tee Time Is Locked In!</h2>
+                    <p>Get ready to play! Your reservation is confirmed and paid. We can’t wait to see you.</p>
 
                     <?php if ($confirmed_booking) : ?>
                         <div class="success-booking-summary" style="margin: 18px 0; padding: 18px 20px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-soft); border-radius: 14px;">
@@ -2890,6 +2968,14 @@ function ttn_add_admin_menu() {
         'ttn_booking_terms_admin_page'
     );
 
+    add_submenu_page(
+        'ttn-bookings-dashboard',
+        'Cancellation Feedback',
+        'Cancellation Feedback',
+        'manage_woocommerce',
+        'edit.php?post_type=ttn_booking_feedback'
+    );
+
     // Raw post list, kept accessible but no longer the top-level menu's default link.
     add_submenu_page(
         'ttn-bookings-dashboard',
@@ -3780,6 +3866,10 @@ function ttn_handle_user_cancel_booking() {
     $current_user = wp_get_current_user();
     $booking_id = intval($_POST['ttn_cancel_booking_id'] ?? $_GET['ttn_cancel_booking_id'] ?? 0);
     $user_email = $current_user->user_email;
+    $return_url = add_query_arg(array(
+        'booking_id' => $booking_id,
+        'view' => 'past',
+    ), home_url('/my-bookings/'));
     $password = (string) ($_POST['account_password'] ?? $_GET['account_password'] ?? '');
 
     // Security check: verify account password before processing cancellation
@@ -3788,16 +3878,24 @@ function ttn_handle_user_cancel_booking() {
             'success' => false,
             'message' => __('Incorrect account password. Booking cancellation was not processed.', 'tee-time-nexus-bookings'),
         ), 30);
-        wp_safe_redirect(home_url('/my-account/'));
+        wp_safe_redirect($return_url);
         exit;
     }
 
     $result = ttn_crud_cancel_user_booking($booking_id, $user_email);
+    if (!empty($result['success'])) {
+        $result['feedback_saved'] = ttn_booking_save_cancellation_feedback(
+            $booking_id,
+            $current_user->ID,
+            $_POST['cancellation_reason'] ?? '',
+            $_POST['cancellation_feedback'] ?? ''
+        );
+    }
     
     // Store result in transient for display on redirect
     set_transient('ttn_user_booking_message_' . $user_email, $result, 30);
     
-    wp_safe_redirect(home_url('/my-account/'));
+    wp_safe_redirect($return_url);
     exit;
 }
 add_action('admin_post_ttn_cancel_user_booking', 'ttn_handle_user_cancel_booking');

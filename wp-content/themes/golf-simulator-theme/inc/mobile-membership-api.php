@@ -7,8 +7,25 @@ if (!defined('ABSPATH')) {
 function golf_simulator_theme_mobile_membership_packages() {
     $packages = golf_simulator_theme_get_default_membership_packages();
     $response = array();
+    $package_posts = get_posts(array(
+        'post_type' => 'membership_package',
+        'post_status' => 'publish',
+        'posts_per_page' => -1,
+        'orderby' => 'menu_order',
+        'order' => 'ASC',
+    ));
 
     foreach ($packages as $key => $package) {
+        $thumbnail_id = absint($package['thumbnail_id'] ?? 0);
+        foreach ($package_posts as $package_post) {
+            $default_key = get_post_meta($package_post->ID, '_membership_default_key', true);
+            $title = get_the_title($package_post->ID);
+            if ($default_key === $key || (!$default_key && ($title === $key || ('ALBATROSS' === $key && 'EAGLE' === $title)))) {
+                $thumbnail_id = absint(get_post_meta($package_post->ID, '_membership_thumbnail_id', true)) ?: $thumbnail_id;
+                break;
+            }
+        }
+        $thumbnail_url = $thumbnail_id ? wp_get_attachment_image_url($thumbnail_id, 'large') : '';
         $response[] = array(
             'slug' => sanitize_title($key),
             'title' => $package['title'],
@@ -17,6 +34,7 @@ function golf_simulator_theme_mobile_membership_packages() {
             'billing' => $package['billing'],
             'featured' => !empty($package['featured']),
             'features' => array_values(array_map('sanitize_text_field', (array) $package['features'])),
+            'thumbnail_url' => $thumbnail_url ? esc_url_raw($thumbnail_url) : null,
         );
     }
 
@@ -86,8 +104,8 @@ function golf_simulator_theme_mobile_membership_guest_checkout(WP_REST_Request $
     $password = (string) $request->get_param('password');
     $display_name = sanitize_text_field($request->get_param('display_name'));
 
-    if (!is_email($email) || strlen($password) < 8) {
-        return new WP_Error('membership_account_invalid', 'Enter a valid email and a password of at least 8 characters.', array('status' => 400));
+    if (!is_email($email) || !golf_simulator_theme_password_meets_policy($password)) {
+        return new WP_Error('membership_account_invalid', 'Enter a valid email and a password with at least 8 characters, uppercase and lowercase letters, a number, and a symbol.', array('status' => 400));
     }
 
     if (email_exists($email)) {

@@ -11,6 +11,10 @@ if (!is_user_logged_in()) {
 }
 
 $current_user = wp_get_current_user();
+$booking_action_message = get_transient('ttn_user_booking_message_' . $current_user->user_email);
+if ($booking_action_message) {
+    delete_transient('ttn_user_booking_message_' . $current_user->user_email);
+}
 $bookings = function_exists('ttn_get_user_bookings') ? ttn_get_user_bookings($current_user->user_email) : array();
 $booking_id = isset($_GET['booking_id']) ? absint($_GET['booking_id']) : 0;
 $selected_booking = null;
@@ -50,6 +54,9 @@ $booking_images = array(
 );
 ?>
 <main class="container member-bookings-page">
+    <?php if (is_array($booking_action_message) && empty($booking_action_message['success'])) : ?>
+        <p class="member-bookings-action-message is-error" role="alert"><?php echo esc_html($booking_action_message['message'] ?? 'The booking could not be cancelled.'); ?></p>
+    <?php endif; ?>
     <?php if ($booking_id) : ?>
         <?php if (!$selected_booking) : ?>
             <a class="member-bookings-back" href="<?php echo esc_url($base_url); ?>">&larr; All bookings</a>
@@ -85,17 +92,77 @@ $booking_images = array(
                     <div><dt>Payment</dt><dd><?php echo esc_html($payment['payment_method'] ?? ($selected_booking['payment_status'] ?: 'Unavailable')); ?><?php if (!empty($payment['card_last_four'])) : ?> ···· <?php echo esc_html($payment['card_last_four']); ?><?php endif; ?></dd></div>
                 </dl>
             </section>
+            <?php if ($is_cancelled && !empty($booking_action_message['success'])) : ?>
+                <section class="member-booking-cancel-success" role="status" aria-labelledby="booking-cancelled-heading">
+                    <h2 id="booking-cancelled-heading">Reservation cancelled</h2>
+                    <p>We&rsquo;re sorry to see you go. If there&rsquo;s anything we could have done differently, please let us know how we can help. Your feedback helps us improve.</p>
+                    <?php if (!empty($booking_action_message['message'])) : ?>
+                        <p><?php echo esc_html($booking_action_message['message']); ?></p>
+                    <?php endif; ?>
+                    <?php if (!empty($booking_action_message['feedback_saved'])) : ?>
+                        <p class="member-booking-feedback-saved">Thank you for sharing your feedback. We&rsquo;ve saved it for our team.</p>
+                    <?php endif; ?>
+                    <a href="<?php echo esc_url(home_url('/contact/')); ?>">Share feedback or contact us</a>
+                </section>
+            <?php endif; ?>
             <?php if ($can_manage) : ?>
                 <div class="member-booking-actions">
                     <a class="btn btn-secondary" href="<?php echo esc_url(home_url('/my-account/?action=edit&booking_id=' . (int) $selected_booking['ID'])); ?>">Edit reservation</a>
-                    <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="member-booking-cancel-form">
-                        <input type="hidden" name="action" value="ttn_cancel_user_booking">
-                        <?php wp_nonce_field('ttn_cancel_booking_nonce', 'ttn_cancel_booking_nonce'); ?>
-                        <input type="hidden" name="ttn_cancel_booking_id" value="<?php echo esc_attr($selected_booking['ID']); ?>">
-                        <label for="member-booking-password">Confirm your password to cancel</label>
-                        <input id="member-booking-password" type="password" name="account_password" autocomplete="current-password" required>
-                        <button class="btn btn-danger" type="submit">Cancel reservation</button>
-                    </form>
+                    <div class="member-booking-cancellation">
+                        <button class="btn btn-danger" type="button" id="open-booking-cancel-flow" aria-expanded="false" aria-haspopup="dialog" aria-controls="booking-cancel-flow">Cancel reservation</button>
+                        <dialog class="member-booking-cancel-dialog" id="booking-cancel-flow" aria-labelledby="booking-cancel-step-one-heading">
+                            <button class="member-booking-cancel-close" type="button" data-dismiss-booking-cancel aria-label="Keep my booking and close">&times;</button>
+                            <div class="member-booking-cancel-brand">
+                                <?php $site_logo = get_theme_mod('golf_simulator_site_logo'); ?>
+                                <?php if (!empty($site_logo)) : ?>
+                                    <img src="<?php echo esc_url($site_logo); ?>" alt="<?php echo esc_attr(get_bloginfo('name')); ?>">
+                                <?php elseif (has_custom_logo()) : ?>
+                                    <?php echo get_custom_logo(); ?>
+                                <?php else : ?>
+                                    <span class="member-booking-cancel-wordmark">Tee Time <strong>Nexus</strong></span>
+                                <?php endif; ?>
+                            </div>
+                            <section id="booking-cancel-step-one" aria-labelledby="booking-cancel-step-one-heading" tabindex="-1">
+                                <h2 id="booking-cancel-step-one-heading">We&rsquo;re sorry to see you cancel.</h2>
+                                <span class="member-booking-cancel-divider" aria-hidden="true"></span>
+                                <p>Would another date or time work better? Reschedule your reservation and keep your tee time, without starting over.</p>
+                                <div class="member-booking-cancel-actions">
+                                    <a class="btn btn-primary" href="<?php echo esc_url(home_url('/my-account/?action=edit&booking_id=' . (int) $selected_booking['ID'])); ?>">Reschedule my tee time <span aria-hidden="true">&#8594;</span></a>
+                                    <button class="btn btn-secondary" type="button" id="continue-booking-cancel">Continue cancellation</button>
+                                    <button class="member-booking-cancel-keep" type="button" data-dismiss-booking-cancel>Keep my booking</button>
+                                </div>
+                            </section>
+                            <section id="booking-cancel-step-two" aria-labelledby="booking-cancel-step-two-heading" tabindex="-1" hidden>
+                                <h2 id="booking-cancel-step-two-heading">We&rsquo;re sorry to see you go.</h2>
+                                <p>If there&rsquo;s something we can do to help, or you&rsquo;d like to share why you&rsquo;re cancelling, we&rsquo;d appreciate hearing from you. Your feedback helps us improve our service.</p>
+                                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" class="member-booking-cancel-form">
+                                    <input type="hidden" name="action" value="ttn_cancel_user_booking">
+                                    <?php wp_nonce_field('ttn_cancel_booking_nonce', 'ttn_cancel_booking_nonce'); ?>
+                                    <input type="hidden" name="ttn_cancel_booking_id" value="<?php echo esc_attr($selected_booking['ID']); ?>">
+                                    <label for="cancellation-reason">What is the main reason? <span>(optional)</span></label>
+                                    <select id="cancellation-reason" name="cancellation_reason">
+                                        <option value="">Select a reason</option>
+                                        <option value="Schedule changed">My schedule changed</option>
+                                        <option value="Cost">Cost</option>
+                                        <option value="Golf simulator experience">Golf simulator experience</option>
+                                        <option value="Technical issue">Technical issue</option>
+                                        <option value="Other">Other</option>
+                                        <option value="Prefer not to say">Prefer not to say</option>
+                                    </select>
+                                    <label for="cancellation-feedback">Anything else you&rsquo;d like us to know? <span>(optional)</span></label>
+                                    <textarea id="cancellation-feedback" name="cancellation_feedback" rows="4" maxlength="2000" placeholder="Share a suggestion or let us know how we could help."></textarea>
+                                    <p class="member-booking-feedback-note">Feedback is optional and will be saved with this booking and your account for our team to review.</p>
+                                    <a class="member-booking-feedback-link" href="<?php echo esc_url(home_url('/contact/')); ?>">Contact us directly</a>
+                                    <label for="member-booking-password">Enter your password to confirm cancellation</label>
+                                    <input id="member-booking-password" type="password" name="account_password" autocomplete="current-password" required>
+                                    <div class="member-booking-cancel-actions">
+                                        <button class="btn btn-secondary" type="button" data-back-booking-cancel>Go back</button>
+                                        <button class="btn btn-danger" type="submit">Confirm cancellation</button>
+                                    </div>
+                                </form>
+                            </section>
+                        </dialog>
+                    </div>
                 </div>
             <?php elseif (!$is_cancelled) : ?>
                 <p class="member-bookings-notice">This reservation starts within 24 hours and can no longer be changed online. Please call <a href="tel:+19805033288">+1 (980) 503-3288</a> for help.</p>
@@ -139,4 +206,57 @@ $booking_images = array(
         <?php endif; ?>
     <?php endif; ?>
 </main>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    var openButton = document.getElementById('open-booking-cancel-flow');
+    var flow = document.getElementById('booking-cancel-flow');
+    var firstStep = document.getElementById('booking-cancel-step-one');
+    var secondStep = document.getElementById('booking-cancel-step-two');
+    var continueButton = document.getElementById('continue-booking-cancel');
+
+    if (!openButton || !flow || !firstStep || !secondStep || !continueButton) {
+        return;
+    }
+
+    function closeFlow() {
+        flow.close();
+        openButton.setAttribute('aria-expanded', 'false');
+        openButton.focus();
+    }
+
+    openButton.addEventListener('click', function() {
+        firstStep.hidden = false;
+        secondStep.hidden = true;
+        flow.setAttribute('aria-labelledby', 'booking-cancel-step-one-heading');
+        flow.showModal();
+        openButton.setAttribute('aria-expanded', 'true');
+        firstStep.focus();
+    });
+
+    continueButton.addEventListener('click', function() {
+        firstStep.hidden = true;
+        secondStep.hidden = false;
+        flow.setAttribute('aria-labelledby', 'booking-cancel-step-two-heading');
+        secondStep.focus();
+    });
+
+    flow.addEventListener('close', function() {
+        openButton.setAttribute('aria-expanded', 'false');
+        openButton.focus();
+    });
+
+    flow.querySelectorAll('[data-dismiss-booking-cancel]').forEach(function(button) {
+        button.addEventListener('click', closeFlow);
+    });
+
+    flow.querySelectorAll('[data-back-booking-cancel]').forEach(function(button) {
+        button.addEventListener('click', function() {
+            secondStep.hidden = true;
+            firstStep.hidden = false;
+            flow.setAttribute('aria-labelledby', 'booking-cancel-step-one-heading');
+            firstStep.focus();
+        });
+    });
+});
+</script>
 <?php get_footer(); ?>

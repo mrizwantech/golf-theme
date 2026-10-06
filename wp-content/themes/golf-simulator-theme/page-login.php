@@ -16,6 +16,7 @@ if (isset($_POST['redirect_to'])) {
 
 $active_tab = (isset($_GET['tab']) && $_GET['tab'] === 'register') || get_post_field('post_name') === 'register' ? 'register' : 'login';
 $error_message = '';
+$password_reset_notice = isset($_GET['checkemail']) && 'confirm' === sanitize_key(wp_unslash($_GET['checkemail']));
 
 // Processed here (before get_header()) so a successful login/register can
 // redirect immediately; on failure we fall through and render the page
@@ -39,6 +40,12 @@ get_header();
         <div class="kicker">Tee Time Nexus</div>
         <h1>My Account</h1>
         <p>Log in to manage your bookings and member benefits, or create an account to save your booking history, track perks, and book faster next time.</p>
+
+        <?php if ($password_reset_notice) : ?>
+            <div class="notice notice-success" data-tab="login">
+                <p>If an account matches that email, we sent a password reset link. Check your inbox and spam folder for next steps.</p>
+            </div>
+        <?php endif; ?>
 
         <?php if ($error_message) : ?>
             <div class="notice notice-error" data-tab="<?php echo esc_attr($active_tab); ?>">
@@ -87,8 +94,15 @@ get_header();
                     </label>
                     <label class="full-width">
                         Password
-                        <input type="password" name="password" placeholder="At least 6 characters" autocomplete="new-password" minlength="6" required>
+                        <input type="password" id="ttn-register-password" name="password" placeholder="8+ characters, upper/lowercase, number, symbol" autocomplete="new-password" minlength="8" pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9\s]).{8,}" title="Use at least 8 characters, including uppercase and lowercase letters, a number, and a symbol." required>
                     </label>
+                    <ul class="password-requirements full-width" id="ttn-password-requirements" aria-live="polite">
+                        <li data-rule="length"><span>○</span>At least 8 characters</li>
+                        <li data-rule="uppercase"><span>○</span>One uppercase letter</li>
+                        <li data-rule="lowercase"><span>○</span>One lowercase letter</li>
+                        <li data-rule="number"><span>○</span>One number</li>
+                        <li data-rule="symbol"><span>○</span>One symbol</li>
+                    </ul>
                     <label class="full-width">
                         Phone Number
                         <input type="tel" name="phone" placeholder="(555) 123-4567" autocomplete="tel">
@@ -145,6 +159,36 @@ get_header();
     border: 1px solid rgba(220, 38, 38, 0.35);
     color: #f87171;
 }
+.auth-card .notice-success {
+    background: rgba(var(--primary-rgb), 0.12);
+    border: 1px solid rgba(var(--primary-rgb), 0.35);
+    color: var(--heading);
+}
+.password-requirements {
+    display: grid;
+    gap: 6px;
+    margin: -6px 0 12px;
+    padding: 0;
+    list-style: none;
+}
+.password-requirements li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: .82rem;
+}
+.password-requirements li span {
+    width: 18px;
+    color: var(--muted);
+    font-weight: 800;
+}
+.password-requirements li.is-met {
+    color: var(--heading);
+}
+.password-requirements li.is-met span {
+    color: var(--primary);
+}
 .auth-card .optional-tag {
     font-weight: 400;
     color: var(--muted);
@@ -163,6 +207,28 @@ get_header();
 </style>
 <script>
 (function() {
+    var passwordInput = document.getElementById('ttn-register-password');
+    var passwordRequirements = document.getElementById('ttn-password-requirements');
+    if (passwordInput && passwordRequirements) {
+        function updatePasswordRequirements() {
+            var value = passwordInput.value;
+            var checks = {
+                length: value.length >= 8,
+                uppercase: /[A-Z]/.test(value),
+                lowercase: /[a-z]/.test(value),
+                number: /[0-9]/.test(value),
+                symbol: /[^A-Za-z0-9\s]/.test(value)
+            };
+            passwordRequirements.querySelectorAll('[data-rule]').forEach(function(item) {
+                var met = checks[item.getAttribute('data-rule')];
+                item.classList.toggle('is-met', met);
+                item.querySelector('span').textContent = met ? '✓' : '○';
+            });
+        }
+        passwordInput.addEventListener('input', updatePasswordRequirements);
+        updatePasswordRequirements();
+    }
+
     var tabs = document.querySelectorAll('.auth-tab');
     tabs.forEach(function(tab) {
         tab.addEventListener('click', function() {
@@ -172,7 +238,7 @@ get_header();
             tab.classList.add('active');
             document.getElementById('auth-panel-' + target).classList.add('active');
 
-            var notice = document.querySelector('.notice-error');
+            var notice = document.querySelector('.notice-error, .notice-success');
             if (notice && notice.getAttribute('data-tab') !== target) {
                 notice.style.display = 'none';
             }
