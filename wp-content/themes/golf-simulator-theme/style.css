@@ -1018,6 +1018,32 @@ img {
     overflow: hidden;
 }
 
+.about-page>.about-intro-band,
+.about-page>.about-visit-band {
+    width: min(1440px, calc(100% - 40px));
+    margin-right: auto;
+    margin-left: auto;
+}
+
+.about-page>.about-intro-band .container,
+.about-page>.about-visit-band .container {
+    width: 100%;
+}
+
+.about-page>.about-intro-band {
+    background: transparent;
+}
+
+.about-page>.about-visit-band {
+    background: transparent;
+}
+
+.about-page .about-intro-inner,
+.about-page .about-visit-inner {
+    padding-top: 82px;
+    padding-bottom: 82px;
+}
+
 .about-hero {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
@@ -1029,7 +1055,6 @@ img {
 
 .about-hero-text-only {
     grid-template-columns: minmax(0, 1fr);
-    max-width: 1000px;
 }
 
 .about-hero-copy {
@@ -1060,7 +1085,7 @@ img {
 
 .about-hero h1 {
     margin: 18px 0 20px;
-    color: var(--heading);
+    color: var(--primary);
     font-size: clamp(2.6rem, 5vw, 4.7rem);
     line-height: 1.02;
 }
@@ -1139,7 +1164,7 @@ img {
 .about-section-heading h2,
 .about-visit-inner h2 {
     margin: 12px 0;
-    color: var(--heading);
+    color: var(--primary);
     font-size: clamp(2rem, 3.5vw, 3.2rem);
     line-height: 1.1;
 }
@@ -1341,46 +1366,10 @@ img {
 }
 
 .golf-technology-page .about-feature-list {
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 22px;
+    align-items: stretch;
     border-top: 0;
-}
-
-.golf-tech-feature-tabs {
-    position: sticky;
-    top: 82px;
-    z-index: 20;
-    display: flex;
-    gap: 4px;
-    overflow-x: auto;
-    margin: 0 0 28px;
-    padding: 8px 0 0;
-    border-bottom: 1px solid var(--border-soft-strong);
-    background: var(--bg);
-    scrollbar-width: thin;
-}
-
-.golf-tech-feature-tabs a {
-    flex: 0 0 auto;
-    padding: 12px 14px;
-    border-bottom: 3px solid transparent;
-    color: var(--muted);
-    font-size: .9rem;
-    font-weight: 700;
-    text-decoration: none;
-    white-space: nowrap;
-}
-
-.golf-tech-feature-tabs a:hover,
-.golf-tech-feature-tabs a:focus-visible {
-    border-bottom-color: var(--primary);
-    color: var(--heading);
-}
-
-.golf-tech-feature-tabs a:focus-visible {
-    outline: 2px solid var(--primary);
-    outline-offset: -2px;
 }
 
 .about-feature {
@@ -1399,16 +1388,23 @@ img {
 .golf-technology-page .about-feature,
 .golf-technology-page .about-feature:nth-child(odd) {
     display: grid;
-    grid-template-columns: 48px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
     align-items: start;
-    gap: 18px;
+    align-content: start;
+    align-self: stretch;
+    gap: 0;
+    min-width: 0;
     margin-right: 0;
-    padding: 24px;
+    padding: 22px;
     border: 1px solid var(--border-soft);
-    border-radius: 18px;
+    border-radius: 12px;
     background: var(--surface);
     box-shadow: var(--shadow);
     transition: transform .25s ease, border-color .25s ease, box-shadow .25s ease;
+}
+
+.golf-technology-page .about-feature>div {
+    min-width: 0;
 }
 
 .golf-technology-page .about-feature:hover,
@@ -1420,7 +1416,8 @@ img {
 }
 
 .golf-technology-page .about-feature-number {
-    flex: 0 0 48px;
+    padding: 0 0 8px;
+    font-size: .72rem;
 }
 
 .golf-technology-feature-gif {
@@ -1463,10 +1460,6 @@ img {
     width: auto;
     max-width: 100%;
     max-height: 140px;
-}
-
-.golf-technology-page .about-feature-highlight {
-    border-left: 3px solid var(--primary);
 }
 
 .golf-tech-legacy-anchor {
@@ -1532,6 +1525,10 @@ img {
     font-size: 1.2rem;
 }
 
+.golf-technology-page .about-feature h3 {
+    color: var(--primary);
+}
+
 .about-feature p {
     margin: 0;
     color: var(--muted);
@@ -1543,6 +1540,26 @@ img {
     padding-left: 22px;
     color: var(--muted);
     line-height: 1.7;
+}
+
+.golf-technology-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 14px;
+}
+
+.golf-technology-feature-details.golf-technology-metric-column {
+    display: grid;
+    align-content: start;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.golf-technology-metric-column li {
+    overflow-wrap: anywhere;
 }
 
 .about-more {
@@ -1586,6 +1603,18 @@ img {
     background: var(--surface);
 }
 
+.about-page>section {
+    border: 1px solid var(--primary);
+    border-radius: 14px;
+    margin-bottom: 20px;
+    padding-right: clamp(20px, 3vw, 36px);
+    padding-left: clamp(20px, 3vw, 36px);
+}
+
+.about-page>section:last-child {
+    margin-bottom: 0;
+}
+
 .about-visit-inner {
     display: flex;
     align-items: center;
@@ -1612,13 +1641,19 @@ img {
 
 @media (max-width: 800px) {
 
-    .golf-tech-feature-tabs {
-        top: 165px;
-    }
-
     .about-hero,
     .about-section-heading {
         grid-template-columns: 1fr;
+    }
+
+    .about-section-heading {
+        align-items: start;
+    }
+
+    .about-section-heading>div,
+    .about-section-heading>p {
+        width: 100%;
+        min-width: 0;
     }
 
     .about-hero {
@@ -1628,6 +1663,10 @@ img {
     }
 
     .about-feature-list {
+        grid-template-columns: 1fr;
+    }
+
+    .golf-technology-page .about-feature-list {
         grid-template-columns: 1fr;
     }
 
@@ -1650,6 +1689,42 @@ img {
 }
 
 @media (max-width: 540px) {
+    .golf-technology-page #technology-shot-analysis {
+        grid-column: 1 / -1;
+    }
+
+    .golf-technology-page .about-feature-list {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .golf-technology-page .about-feature,
+    .golf-technology-page .about-feature:nth-child(odd) {
+        padding: 12px;
+        border-radius: 8px;
+    }
+
+    .golf-technology-page .about-feature h3 {
+        font-size: 1rem;
+        line-height: 1.25;
+        overflow-wrap: anywhere;
+    }
+
+    .golf-technology-page .about-feature p,
+    .golf-technology-page .golf-technology-feature-details {
+        font-size: .86rem;
+        line-height: 1.5;
+        overflow-wrap: anywhere;
+    }
+
+    .golf-technology-page .golf-technology-feature-details {
+        padding-left: 16px;
+    }
+
+    .golf-technology-page .golf-technology-feature-details.golf-technology-metric-column {
+        padding-left: 0;
+    }
+
     .about-actions {
         align-items: flex-start;
         flex-direction: column;

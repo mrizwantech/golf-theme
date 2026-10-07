@@ -16,7 +16,7 @@ $technology_sections = golf_simulator_theme_golf_technology_sections();
             </div>
         </div>
         <div class="about-demo">
-            <iframe src="https://www.youtube-nocookie.com/embed/fuEV8m1Bdb4" title="GOLFZON TwoVision NX simulator demo" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+            <iframe src="https://www.youtube-nocookie.com/embed/fuEV8m1Bdb4?enablejsapi=1" title="GOLFZON TwoVision NX simulator demo" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
         </div>
     </section>
 
@@ -27,13 +27,7 @@ $technology_sections = golf_simulator_theme_golf_technology_sections();
                 <h2 id="golf-technology-heading">Explore the TwoVision NX experience</h2>
             </div>
         </div>
-        <nav class="golf-tech-feature-tabs" aria-label="Golf technology features">
-            <?php foreach ($technology_sections as $feature_id => $feature) : ?>
-                <a href="#<?php echo esc_attr($feature_id); ?>"><?php echo esc_html($feature['label']); ?></a>
-            <?php endforeach; ?>
-        </nav>
-
-        <div class="about-feature-list">
+        <div class="about-feature-list golf-tech-grid">
             <?php foreach ($technology_sections as $feature_id => $feature) : ?>
                 <article class="about-feature<?php echo !empty($feature['featured']) ? ' about-feature-highlight' : ''; ?>" id="<?php echo esc_attr($feature_id); ?>" tabindex="-1">
                     <span class="about-feature-number"><?php echo esc_html($feature['number']); ?></span>
@@ -44,11 +38,23 @@ $technology_sections = golf_simulator_theme_golf_technology_sections();
                         <h3><?php echo esc_html($feature['label']); ?></h3>
                         <p><?php echo esc_html($feature['text']); ?></p>
                         <?php if (!empty($feature['details'])) : ?>
-                            <ul class="golf-technology-feature-details">
-                                <?php foreach ($feature['details'] as $detail) : ?>
-                                    <li><?php echo esc_html($detail); ?></li>
-                                <?php endforeach; ?>
-                            </ul>
+                            <?php if ($feature_id === 'technology-shot-analysis') : ?>
+                                <div class="golf-technology-metrics">
+                                    <?php foreach (array_chunk($feature['details'], 5) as $metric_column) : ?>
+                                        <ul class="golf-technology-feature-details golf-technology-metric-column">
+                                            <?php foreach ($metric_column as $detail) : ?>
+                                                <li><?php echo esc_html($detail); ?></li>
+                                            <?php endforeach; ?>
+                                        </ul>
+                                    <?php endforeach; ?>
+                                </div>
+                            <?php else : ?>
+                                <ul class="golf-technology-feature-details">
+                                    <?php foreach ($feature['details'] as $detail) : ?>
+                                        <li><?php echo esc_html($detail); ?></li>
+                                    <?php endforeach; ?>
+                                </ul>
+                            <?php endif; ?>
                         <?php endif; ?>
                         <?php foreach ($feature['subsections'] ?? array() as $title => $text) : ?>
                             <div class="golf-tech-subsection">
@@ -65,7 +71,7 @@ $technology_sections = golf_simulator_theme_golf_technology_sections();
                                 <h4 class="golf-tech-video-heading">See It in Action</h4>
                                 <p class="golf-tech-video-title"><?php echo esc_html($feature['video_title']); ?></p>
                                 <div class="golf-tech-video-frame">
-                                    <iframe src="<?php echo esc_url('https://www.youtube-nocookie.com/embed/' . rawurlencode($feature['video_id'])); ?>" title="<?php echo esc_attr($feature['video_title']); ?>" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+                                    <iframe src="<?php echo esc_url('https://www.youtube-nocookie.com/embed/' . rawurlencode($feature['video_id']) . '?enablejsapi=1'); ?>" title="<?php echo esc_attr($feature['video_title']); ?>" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
                                 </div>
                             </div>
                         <?php endif; ?>
@@ -88,4 +94,59 @@ $technology_sections = golf_simulator_theme_golf_technology_sections();
         </div>
     </section>
 </main>
+<script>
+(function() {
+    var frames = Array.prototype.slice.call(document.querySelectorAll('.golf-technology-page iframe[src*="youtube-nocookie.com/embed/"]'));
+    var initialized = false;
+
+    if (!frames.length) {
+        return;
+    }
+
+    function initializePlayers() {
+        if (initialized || !window.YT || !window.YT.Player) {
+            return;
+        }
+        initialized = true;
+
+        var players = [];
+        frames.forEach(function(frame) {
+            var player = new window.YT.Player(frame, {
+                events: {
+                    onStateChange: function(event) {
+                        if (event.data !== window.YT.PlayerState.PLAYING) {
+                            return;
+                        }
+                        players.forEach(function(otherPlayer) {
+                            if (otherPlayer !== event.target && otherPlayer.getPlayerState() === window.YT.PlayerState.PLAYING) {
+                                otherPlayer.pauseVideo();
+                            }
+                        });
+                    }
+                }
+            });
+            players.push(player);
+        });
+    }
+
+    if (window.YT && window.YT.Player) {
+        initializePlayers();
+        return;
+    }
+
+    var previousReadyCallback = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = function() {
+        if (typeof previousReadyCallback === 'function') {
+            previousReadyCallback();
+        }
+        initializePlayers();
+    };
+
+    if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
+        var apiScript = document.createElement('script');
+        apiScript.src = 'https://www.youtube.com/iframe_api';
+        document.head.appendChild(apiScript);
+    }
+})();
+</script>
 <?php get_footer(); ?>

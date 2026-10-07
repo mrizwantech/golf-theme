@@ -57,8 +57,9 @@ ob_start();
 require dirname(__DIR__) . '/page-golf-technology.php';
 $html = ob_get_clean();
 check_technology(substr_count($html, '<article class="about-feature') === 13, 'Rendered page must have 13 feature sections.');
-preg_match_all('/<a href="#([^"]+)">/', $html, $tabs);
-check_technology($tabs[1] === array_keys($sections), 'Tabs must match section order exactly.');
+check_technology(strpos($html, 'class="about-feature-list golf-tech-grid"') !== false, 'Technology features must use the card grid.');
+check_technology(strpos($html, 'golf-tech-feature-tabs') === false, 'Feature navigation buttons must be removed.');
+check_technology(substr_count($html, 'golf-technology-feature-details golf-technology-metric-column') === 3, 'Shot metrics must render as three columns.');
 foreach ($all_ids as $id) {
     check_technology(substr_count($html, 'id="' . $id . '"') === 1, 'Each existing feature anchor must resolve once: ' . $id);
 }
@@ -70,6 +71,8 @@ foreach ($sections as $section) {
     check_technology(strpos($html, 'https://www.youtube-nocookie.com/embed/' . $section['video_id']) !== false, 'Section video embed is missing: ' . $section['video_id']);
 }
 check_technology(substr_count($html, '<iframe ') === 14, 'Hero and feature videos must all be embedded.');
+check_technology(substr_count($html, 'enablejsapi=1') === 14, 'Every embedded video must support coordinated playback.');
+check_technology(strpos($html, 'otherPlayer.pauseVideo()') !== false, 'Starting a video must pause any other playing video.');
 check_technology(strpos($html, 'youtube.com/watch') === false, 'The page must not send visitors to YouTube.');
 check_technology(strpos($html, 'depending on Tee Time Nexus facility configuration') !== false, 'Facility disclaimer is missing.');
 check_technology(substr_count($html, 'Book a Bay') === 2, 'Existing booking calls to action must remain.');
