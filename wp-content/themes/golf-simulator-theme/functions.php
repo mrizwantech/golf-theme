@@ -557,6 +557,13 @@ function golf_simulator_theme_enqueue_assets() {
 
     wp_enqueue_style('golf-simulator-theme-style', get_stylesheet_uri(), array(), $style_version);
     wp_enqueue_script(
+        'golf-simulator-theme-navigation',
+        get_template_directory_uri() . '/assets/js/navigation.js',
+        array(),
+        filemtime(get_template_directory() . '/assets/js/navigation.js'),
+        true
+    );
+    wp_enqueue_script(
         'golf-simulator-theme-slider',
         get_template_directory_uri() . '/assets/js/slider.js',
         array(),

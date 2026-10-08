@@ -7,13 +7,14 @@ wp-content/backup-db/
 wp-content/advanced-cache.php
 wp-content/cache/
 wp-content/wp-cache-config.php
-wp-content/plugins/
+wp-content/plugins/*
 wp-content/uploads/
 
-# Ignore all plugins except the custom one
+# Ignore plugin files except the new first-party competitions plugin
 wp-content/plugins/*
-!wp-content/plugins/tee-time-nexus-bookings/
-!wp-content/plugins/tee-time-nexus-bookings/**
+!wp-content/plugins/tee-time-nexus-competitions/
+!wp-content/plugins/tee-time-nexus-competitions/**
+wp-content/plugins/tee-time-nexus-competitions/**/.DS_Store
 
 # Ignore all themes except the custom one
 wp-content/themes/*
