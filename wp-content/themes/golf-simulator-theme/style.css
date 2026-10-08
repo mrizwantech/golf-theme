@@ -1213,6 +1213,20 @@ img {
     color: var(--primary);
 }
 
+.about-map-frame {
+    margin-top: 24px;
+    overflow: hidden;
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+}
+
+.about-map-frame iframe {
+    display: block;
+    width: 100%;
+    height: 300px;
+    border: 0;
+}
+
 .hours-page {
     min-height: 70vh;
 }
@@ -1284,6 +1298,10 @@ img {
     line-height: 1.1;
 }
 
+.hours-member-schedule .hours-member-access-time {
+    color: var(--heading);
+}
+
 @media (max-width: 640px) {
     .hours-schedule .hours-schedule-title {
         font-size: 2.4rem;
@@ -1314,17 +1332,6 @@ img {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-}
-
-.hours-member-mark {
-    display: grid;
-    width: 76px;
-    height: 76px;
-    place-items: center;
-    border: 1px solid rgba(var(--primary-rgb), .55);
-    border-radius: 50%;
-    color: var(--primary);
-    font-weight: 900;
 }
 
 .hours-member-schedule .btn {
@@ -1685,6 +1692,10 @@ img {
     .about-visit-inner {
         align-items: flex-start;
         flex-direction: column;
+    }
+
+    .about-map-frame iframe {
+        height: 240px;
     }
 }
 

@@ -10,7 +10,6 @@ function golf_simulator_theme_golf_technology_sections() {
             'number' => '01', 'label' => 'Motion Plate & Multi-Surface Play', 'featured' => true,
             'aliases' => array('technology-multi-surface-play'),
             'text' => 'Experience realistic course conditions instead of hitting every shot from a perfectly flat surface. The Motion Plate recreates uphill, downhill, and sidehill lies, while multiple hitting surfaces simulate fairway, rough, and bunker conditions.',
-            'details' => array('Moves in 64 directions', 'Up to 56,000 possible lies', 'Realistic uphill, downhill, and sidehill shots', 'Fairway, rough, and bunker surfaces', 'More realistic club-to-turf interaction'),
             'video_id' => 'wLWPu46TT68', 'video_title' => 'The TwoVisionNX Motion Plate — GOLFZON',
         ),
         'technology-auto-tee' => array(

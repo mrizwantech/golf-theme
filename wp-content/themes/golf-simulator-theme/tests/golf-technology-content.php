@@ -49,10 +49,6 @@ check_technology(count(array_filter($sections, static function ($section) {
     return !empty($section['video_id']) && !empty($section['video_title']);
 })) === 13, 'Every section must have a titled video.');
 
-function golf_simulator_theme_render_golf_technology_feature_gif($feature_id) {
-    return '<figure data-feature="' . esc_attr($feature_id) . '"></figure>';
-}
-
 ob_start();
 require dirname(__DIR__) . '/page-golf-technology.php';
 $html = ob_get_clean();
@@ -73,6 +69,7 @@ foreach ($sections as $section) {
 check_technology(substr_count($html, '<iframe ') === 14, 'Hero and feature videos must all be embedded.');
 check_technology(substr_count($html, 'enablejsapi=1') === 14, 'Every embedded video must support coordinated playback.');
 check_technology(strpos($html, 'otherPlayer.pauseVideo()') !== false, 'Starting a video must pause any other playing video.');
+check_technology(strpos($html, 'golf-technology-feature-gif') === false, 'Feature GIFs must not render on the page.');
 check_technology(strpos($html, 'youtube.com/watch') === false, 'The page must not send visitors to YouTube.');
 check_technology(strpos($html, 'depending on Tee Time Nexus facility configuration') !== false, 'Facility disclaimer is missing.');
 check_technology(substr_count($html, 'Book a Bay') === 2, 'Existing booking calls to action must remain.');

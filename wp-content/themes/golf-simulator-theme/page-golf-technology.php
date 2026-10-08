@@ -8,7 +8,6 @@ $technology_sections = golf_simulator_theme_golf_technology_sections();
 <main class="about-page golf-technology-page">
     <section class="about-hero container">
         <div class="about-hero-copy">
-            <span class="about-eyebrow">Powered by GOLFZON TwoVision NX</span>
             <h1>Practice Smarter. Play Better.</h1>
             <p>Advanced practice tools, realistic gameplay, and detailed performance data help you understand your game, sharpen every shot, and make every practice session count.</p>
             <div class="about-actions">
@@ -23,14 +22,12 @@ $technology_sections = golf_simulator_theme_golf_technology_sections();
     <section class="about-technology container" aria-labelledby="golf-technology-heading">
         <div class="about-section-heading">
             <div>
-                <span class="about-eyebrow">The technology</span>
                 <h2 id="golf-technology-heading">Explore the TwoVision NX experience</h2>
             </div>
         </div>
         <div class="about-feature-list golf-tech-grid">
             <?php foreach ($technology_sections as $feature_id => $feature) : ?>
                 <article class="about-feature<?php echo !empty($feature['featured']) ? ' about-feature-highlight' : ''; ?>" id="<?php echo esc_attr($feature_id); ?>" tabindex="-1">
-                    <span class="about-feature-number"><?php echo esc_html($feature['number']); ?></span>
                     <div>
                         <?php foreach ($feature['aliases'] ?? array() as $alias) : ?>
                             <span class="golf-tech-legacy-anchor" id="<?php echo esc_attr($alias); ?>" aria-hidden="true"></span>
@@ -65,7 +62,6 @@ $technology_sections = golf_simulator_theme_golf_technology_sections();
                         <?php if (!empty($feature['after'])) : ?>
                             <p class="golf-tech-followup"><?php echo esc_html($feature['after']); ?></p>
                         <?php endif; ?>
-                        <?php echo golf_simulator_theme_render_golf_technology_feature_gif($feature_id); ?>
                         <?php if (!empty($feature['video_id']) && !empty($feature['video_title'])) : ?>
                             <div class="golf-tech-video">
                                 <h4 class="golf-tech-video-heading">See It in Action</h4>

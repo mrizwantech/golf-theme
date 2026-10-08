@@ -13,8 +13,7 @@ get_header();
         <div class="container">
             <div class="hours-schedule-grid">
                 <article class="hours-schedule hours-member-schedule">
-                    <div class="hours-member-mark" aria-hidden="true">24/7</div>
-                    <h2 class="hours-schedule-title">Member Access</h2>
+                    <h2 class="hours-schedule-title">Member Access <span class="hours-member-access-time">24/7</span></h2>
                     <p class="hours-note">Active members have secure facility access 24 hours a day, 7 days a week through the Tee Time Nexus mobile app.</p>
                     <a class="btn btn-primary" href="<?php echo esc_url(home_url('/membership/')); ?>">Explore Memberships <span aria-hidden="true">&#8594;</span></a>
                 </article>
