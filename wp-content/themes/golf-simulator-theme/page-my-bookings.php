@@ -15,7 +15,7 @@ $booking_action_message = get_transient('ttn_user_booking_message_' . $current_u
 if ($booking_action_message) {
     delete_transient('ttn_user_booking_message_' . $current_user->user_email);
 }
-$bookings = function_exists('ttn_get_user_bookings') ? ttn_get_user_bookings($current_user->user_email) : array();
+$bookings = function_exists('ttn_get_user_bookings') ? ttn_get_user_bookings($current_user->user_email, $current_user->ID) : array();
 $booking_id = isset($_GET['booking_id']) ? absint($_GET['booking_id']) : 0;
 $selected_booking = null;
 foreach ($bookings as $booking) {

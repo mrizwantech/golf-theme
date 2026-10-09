@@ -25,14 +25,20 @@
                 </span>
             </a>
         <?php endif; ?>
-        <?php golf_simulator_theme_menu(); ?>
-        <div class="header-user-menu">
+        <button class="header-menu-toggle" type="button" aria-controls="header-navigation" aria-expanded="false" hidden>
+            <span class="header-menu-icon" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span><?php echo esc_html__('Menu', 'golf-simulator-theme'); ?></span>
+        </button>
+        <div id="header-navigation" class="header-navigation">
+            <?php golf_simulator_theme_menu(); ?>
+            <div class="header-user-menu">
             <?php if (is_user_logged_in()) : ?>
                 <a href="<?php echo esc_url(home_url('/my-account/')); ?>" class="user-link">My Account</a>
                 <a href="<?php echo esc_url(wp_logout_url(home_url())); ?>" class="user-link">Logout</a>
             <?php else : ?>
                 <a href="<?php echo esc_url(golf_simulator_theme_get_login_url()); ?>" class="user-link">Login</a>
             <?php endif; ?>
+            </div>
         </div>
     </div>
 </header>

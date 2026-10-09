@@ -18,8 +18,9 @@ function golf_simulator_theme_get_email_logo_html() {
  * @param string $body_html  Pre-built HTML for the body paragraphs/lists.
  * @param string $cta_text   Optional button label.
  * @param string $cta_url    Optional button URL.
+ * @param string $signoff    Closing line; defaults to the shared email signoff.
  */
-function golf_simulator_theme_render_email_template($eyebrow, $heading, $body_html, $cta_text = '', $cta_url = '') {
+function golf_simulator_theme_render_email_template($eyebrow, $heading, $body_html, $cta_text = '', $cta_url = '', $signoff = 'See you on the tee!') {
     $cta_html = '';
     if ($cta_text && $cta_url) {
         $cta_html = '<p style="margin:0 0 22px;text-align:center;"><a href="' . esc_url($cta_url) . '" style="display:inline-block;padding:13px 20px;background:#a1e04c;color:#101010;text-decoration:none;border-radius:8px;font-weight:800;">' . esc_html($cta_text) . '</a></p>';
@@ -42,7 +43,7 @@ function golf_simulator_theme_render_email_template($eyebrow, $heading, $body_ht
         . '<a href="tel:' . esc_attr($business_phone) . '" style="color:#1769aa;text-decoration:underline;">+1 (980) 503-3288</a><br>'
         . '<a href="mailto:' . esc_attr($business_email) . '" style="color:#1769aa;text-decoration:underline;">' . esc_html($business_email) . '</a>'
         . '</div>'
-        . '<p style="margin:28px 0 0;color:#4b5563;font-size:15px;line-height:1.6;"><strong>See you on the tee!</strong><br><strong>Tee Time Nexus</strong></p>'
+        . '<p style="margin:28px 0 0;color:#4b5563;font-size:15px;line-height:1.6;"><strong>' . esc_html($signoff) . '</strong><br><strong>Tee Time Nexus</strong></p>'
         . '</div></div></div></body></html>';
 }
 

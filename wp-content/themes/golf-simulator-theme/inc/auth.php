@@ -232,8 +232,6 @@ function golf_simulator_theme_process_register($redirect_to) {
     update_user_meta($user_id, 'sms_opt_in', $sms_opt_in ? '1' : '0');
     update_user_meta($user_id, 'promo_opt_in', $promo_opt_in ? '1' : '0');
 
-    golf_simulator_theme_send_account_welcome_email($user_id);
-
     wp_set_current_user($user_id);
     wp_set_auth_cookie($user_id, true);
 
@@ -241,58 +239,41 @@ function golf_simulator_theme_process_register($redirect_to) {
     exit;
 }
 
+/**
+ * Sends the account welcome email for all new WordPress users, including
+ * Apple/REST signups using wp_insert_user(). Existing-user logins do not fire
+ * user_register. A successful wp_mail() result is not proof of inbox delivery.
+ * Records the latest attempt and last successful handoff in the admin profile.
+ */
 function golf_simulator_theme_send_account_welcome_email($user_id) {
     $user = get_userdata($user_id);
     if (!$user || !is_email($user->user_email)) {
+        if ($user) {
+            golf_simulator_theme_record_welcome_email($user_id, 'skipped', $user->user_email, 'Missing or invalid email address.');
+        }
+        error_log(sprintf('TTN account welcome email skipped for user %d: missing user or invalid email.', $user_id));
         return false;
     }
 
     $display_name = $user->display_name ?: 'Golfer';
-    $account_url = home_url('/my-account/');
+    $membership_url = home_url('/membership/');
     $booking_url = home_url('/book-a-bay/');
 
     $subject = 'Welcome to Tee Time Nexus';
-    $body = '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">We are excited to have you with us.</p>'
-        . '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">Your account is ready, and you are now one step closer to experiencing golf in a completely new way.</p>'
-        . '<p style="margin:0 0 22px;color:#4b5563;font-size:15px;line-height:1.6;">At Tee Time Nexus, we have created an indoor golf experience that combines <strong>advanced technology, realistic gameplay, and an immersive environment</strong> designed for golfers of every skill level.</p>'
-        . '<h2 style="margin:0 0 10px;color:#111827;font-size:18px;">Experience Golf Differently</h2>'
-        . '<p style="margin:0 0 14px;color:#4b5563;font-size:15px;line-height:1.6;">Step onto the tee and experience technology designed to capture the details of every shot - from ball flight and club movement to launch conditions and shot performance.</p>'
-        . '<p style="margin:0 0 8px;color:#4b5563;font-size:15px;line-height:1.6;">Our immersive simulation environment brings the golf course to life with:</p>'
-        . '<ul style="margin:0 0 18px;padding-left:22px;color:#4b5563;font-size:15px;line-height:1.8;">'
-        . '<li><strong>Realistic course environments and terrain</strong></li>'
-        . '<li><strong>Precise shot tracking and detailed performance data</strong></li>'
-        . '<li><strong>Advanced swing and ball-flight analysis</strong></li>'
-        . '<li><strong>A wide selection of world-class courses</strong></li>'
-        . '<li><strong>Practice tools designed to help you improve your game</strong></li>'
-        . '<li><strong>Realistic playing conditions and dynamic course surfaces</strong></li>'
-        . '<li><strong>A moving swing platform that responds to the terrain and helps recreate different lies</strong></li>'
-        . '<li><strong>Multiple game modes for practice, casual play, and competition</strong></li>'
-        . '</ul>'
-        . '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">The moving swing platform adds another dimension to the experience, allowing you to play from changing elevations and lies rather than standing on a completely flat surface for every shot.</p>'
-        . '<p style="margin:0 0 22px;color:#4b5563;font-size:15px;line-height:1.6;">And with automated features designed to keep the game moving, you can spend less time managing equipment and more time <strong>playing golf</strong>.</p>'
-        . '<h2 style="margin:0 0 10px;color:#111827;font-size:18px;">Your Golf. Your Schedule.</h2>'
-        . '<p style="margin:0 0 14px;color:#4b5563;font-size:15px;line-height:1.6;">For our members, the experience does not have to fit around traditional business hours.</p>'
-        . '<p style="margin:0 0 14px;color:#4b5563;font-size:15px;line-height:1.6;"><strong>Members enjoy 24/7 access to Tee Time Nexus.</strong></p>'
-        . '<p style="margin:0 0 22px;color:#4b5563;font-size:15px;line-height:1.6;">Whether you want to play early in the morning, get in a few holes after work, practice late at night, or squeeze in a session whenever your schedule allows, your golf experience is available around the clock.</p>'
-        . '<h2 style="margin:0 0 10px;color:#111827;font-size:18px;">Built for Golfers. Made for Everyone.</h2>'
-        . '<p style="margin:0 0 14px;color:#4b5563;font-size:15px;line-height:1.6;">Whether you are working on your swing, playing a competitive round, introducing someone to golf, or getting together with friends, Tee Time Nexus gives you a place to enjoy the game year-round.</p>'
-        . '<p style="margin:0 0 4px;color:#4b5563;font-size:15px;line-height:1.6;">No rain.</p><p style="margin:0 0 4px;color:#4b5563;font-size:15px;line-height:1.6;">No extreme heat.</p><p style="margin:0 0 14px;color:#4b5563;font-size:15px;line-height:1.6;">No waiting for perfect conditions.</p>'
-        . '<p style="margin:0 0 22px;color:#4b5563;font-size:15px;line-height:1.6;">Just <strong>you, your friends, and your next round.</strong></p>'
-        . '<h2 style="margin:0 0 10px;color:#111827;font-size:18px;">Your Next Round Is Waiting</h2>'
-        . '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">Your Tee Time Nexus account gives you access to your bookings, membership information, and everything you need to start planning your next visit.</p>'
-        . '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">We are putting the finishing touches on our space here in <strong>Mooresville, NC</strong>, and we are looking forward to welcoming you through the doors.</p>'
-        . '<p style="margin:0 0 8px;color:#4b5563;font-size:15px;line-height:1.6;"><strong>Get ready to play.</strong></p>'
-        . '<p style="margin:0 0 8px;color:#4b5563;font-size:15px;line-height:1.6;"><strong>Get ready to compete.</strong></p>'
-        . '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;"><strong>Get ready to experience golf like never before.</strong></p>'
-        . '<p style="margin:0 0 8px;color:#4b5563;font-size:15px;line-height:1.6;">Welcome to <strong>Tee Time Nexus</strong>.</p>'
-        . '<p style="margin:0 0 22px;color:#111827;font-size:16px;line-height:1.6;"><strong>Play More. Play Better. Play Anytime.</strong></p>'
-        . '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">See you on the tee,</p>';
+    $body = '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">Your account is ready&mdash;and your next round just got better.</p>'
+        . '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">Tee Time Nexus brings together advanced golf technology, immersive gameplay, and the freedom to play on your schedule.</p>'
+        . '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">Experience world-class courses with precise shot tracking, detailed swing and ball-flight analysis, realistic playing conditions, and a moving swing platform that recreates changing lies and terrain.</p>'
+        . '<p style="margin:0 0 22px;color:#111827;font-size:16px;line-height:1.6;"><strong>More than a simulator. A better way to experience golf.</strong></p>'
+        . '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">As a member, you&rsquo;ll enjoy <strong>24/7 access</strong>&mdash;whether that means an early-morning practice session, a round after work, or late-night golf with friends. <a href="' . esc_url($membership_url) . '" style="color:#1769aa;text-decoration:underline;">Explore memberships</a>.</p>'
+        . '<p style="margin:0 0 16px;color:#4b5563;font-size:15px;line-height:1.6;">We&rsquo;re putting the finishing touches on our Mooresville location and can&rsquo;t wait to welcome you.</p>'
+        . '<p style="margin:0 0 22px;color:#111827;font-size:16px;line-height:1.6;"><strong>Your next round is waiting.</strong></p>';
     $message = golf_simulator_theme_render_email_template(
         'Account Confirmation',
         'Welcome to Tee Time Nexus, ' . $display_name . '!',
         $body,
         'Book a Bay',
-        $booking_url
+        $booking_url,
+        'See you at the Tee Time'
     );
 
     $mail_error = '';
@@ -305,12 +286,181 @@ function golf_simulator_theme_send_account_welcome_email($user_id) {
     $sent = wp_mail($user->user_email, $subject, $message, golf_simulator_theme_get_email_headers());
     remove_action('wp_mail_failed', $capture_mail_error, 10);
 
+    $mail_error = $sent ? '' : ($mail_error ?: 'wp_mail returned false without an error message.');
+    golf_simulator_theme_record_welcome_email($user_id, $sent ? 'accepted' : 'failed', $user->user_email, $mail_error);
+
     if (!$sent) {
-        error_log('TTN account welcome email failed: ' . ($mail_error ?: 'wp_mail returned false without an error message.'));
+        error_log(sprintf('TTN account welcome email failed for user %d: %s', $user_id, $mail_error));
+    } else {
+        error_log(sprintf('TTN account welcome email accepted by wp_mail for user %d; inbox delivery is not confirmed.', $user_id));
     }
 
     return $sent;
 }
+add_action('user_register', 'golf_simulator_theme_send_account_welcome_email', 10, 1);
+
+function golf_simulator_theme_record_welcome_email($user_id, $status, $recipient, $error) {
+    $previous = get_user_meta($user_id, '_ttn_account_welcome_email', true);
+    $previous = is_array($previous) ? $previous : array();
+    $now = time();
+    $record = array(
+        'status' => $status,
+        'attempted_at' => $now,
+        'accepted_at' => $status === 'accepted' ? $now : ($previous['accepted_at'] ?? 0),
+        'attempts' => (int) ($previous['attempts'] ?? 0) + 1,
+        'recipient' => $recipient,
+        'error' => $error,
+    );
+    if (false === update_user_meta($user_id, '_ttn_account_welcome_email', $record)) {
+        error_log(sprintf('TTN account welcome email status could not be saved for user %d.', $user_id));
+    }
+}
+
+function golf_simulator_theme_welcome_email_status_label($record) {
+    $labels = array(
+        'accepted' => __('Accepted by wp_mail (delivery not confirmed)', 'golf-simulator-theme'),
+        'failed' => __('Send failed', 'golf-simulator-theme'),
+        'skipped' => __('Send skipped: invalid email address', 'golf-simulator-theme'),
+    );
+    return $labels[$record['status'] ?? ''] ?? __('No recorded attempt (older emails may not have been tracked)', 'golf-simulator-theme');
+}
+
+function golf_simulator_theme_admin_welcome_email_profile($user) {
+    if (!current_user_can('edit_users') || !current_user_can('edit_user', $user->ID)) {
+        return;
+    }
+
+    $record = get_user_meta($user->ID, '_ttn_account_welcome_email', true);
+    $record = is_array($record) ? $record : array();
+    $status = golf_simulator_theme_welcome_email_status_label($record);
+    ?>
+    <h2><?php echo esc_html(__('Welcome Email', 'golf-simulator-theme')); ?></h2>
+    <table class="form-table" role="presentation">
+        <tr>
+            <th><?php echo esc_html(__('Latest result', 'golf-simulator-theme')); ?></th>
+            <td>
+                <p><strong><?php echo esc_html($status); ?></strong></p>
+                <?php if (!empty($record['attempted_at'])) : ?>
+                    <p><?php echo esc_html(sprintf(__('Last attempt: %s', 'golf-simulator-theme'), wp_date('Y-m-d H:i:s T', $record['attempted_at']))); ?></p>
+                    <p><?php echo esc_html(sprintf(__('Recipient: %s', 'golf-simulator-theme'), $record['recipient'] ?? '')); ?></p>
+                    <p><?php echo esc_html(sprintf(__('Recorded attempts: %d', 'golf-simulator-theme'), $record['attempts'] ?? 0)); ?></p>
+                <?php endif; ?>
+                <?php if (!empty($record['accepted_at'])) : ?>
+                    <p><?php echo esc_html(sprintf(__('Last successful handoff: %s', 'golf-simulator-theme'), wp_date('Y-m-d H:i:s T', $record['accepted_at']))); ?></p>
+                <?php endif; ?>
+                <?php if (!empty($record['error'])) : ?>
+                    <p><?php echo esc_html(sprintf(__('Send error: %s', 'golf-simulator-theme'), $record['error'])); ?></p>
+                <?php endif; ?>
+                <p class="description"><?php echo esc_html(__('A successful handoff does not confirm inbox delivery. Check your mail provider logs for bounces or Apple relay rejections.', 'golf-simulator-theme')); ?></p>
+            </td>
+        </tr>
+        <tr>
+            <th><label for="ttn_resend_welcome_email"><?php echo esc_html(__('Resend welcome email', 'golf-simulator-theme')); ?></label></th>
+            <td>
+                <?php wp_nonce_field('ttn_resend_welcome_email_' . $user->ID, 'ttn_resend_welcome_nonce'); ?>
+                <label><input type="checkbox" name="ttn_resend_welcome_email" id="ttn_resend_welcome_email" value="1" /> <?php echo esc_html(__('Send again when this profile is saved.', 'golf-simulator-theme')); ?></label>
+                <p class="description"><?php echo esc_html(__('Click Update User (or Update Profile) to save changes and send to the saved email address. The latest result will appear above.', 'golf-simulator-theme')); ?></p>
+            </td>
+        </tr>
+    </table>
+    <?php
+}
+add_action('show_user_profile', 'golf_simulator_theme_admin_welcome_email_profile');
+add_action('edit_user_profile', 'golf_simulator_theme_admin_welcome_email_profile');
+
+function golf_simulator_theme_check_welcome_email_resend_permission($user_id) {
+    if (!current_user_can('edit_users') || !current_user_can('edit_user', $user_id)) {
+        wp_die(__('You do not have permission to resend this welcome email.', 'golf-simulator-theme'), '', array('response' => 403));
+    }
+    check_admin_referer('ttn_resend_welcome_email_' . $user_id, 'ttn_resend_welcome_nonce');
+}
+
+// profile_update runs after the new email address has been saved.
+function golf_simulator_theme_admin_resend_welcome_email($user_id) {
+    if (empty($_POST['ttn_resend_welcome_email'])) {
+        return;
+    }
+    golf_simulator_theme_check_welcome_email_resend_permission($user_id);
+    golf_simulator_theme_send_account_welcome_email($user_id);
+}
+add_action('profile_update', 'golf_simulator_theme_admin_resend_welcome_email', 10, 1);
+
+function golf_simulator_theme_welcome_email_users_columns($columns) {
+    if (current_user_can('edit_users')) {
+        $columns['ttn_welcome_email'] = __('Welcome Email', 'golf-simulator-theme');
+    }
+    return $columns;
+}
+add_filter('manage_users_columns', 'golf_simulator_theme_welcome_email_users_columns');
+
+function golf_simulator_theme_welcome_email_users_column($output, $column_name, $user_id) {
+    if ($column_name !== 'ttn_welcome_email' || !current_user_can('edit_users') || !current_user_can('edit_user', $user_id)) {
+        return $output;
+    }
+    $record = get_user_meta($user_id, '_ttn_account_welcome_email', true);
+    $record = is_array($record) ? $record : array();
+    $output = '<p>' . esc_html(golf_simulator_theme_welcome_email_status_label($record)) . '</p>';
+    if (!empty($record['attempted_at'])) {
+        $output .= '<p>' . esc_html(sprintf(__('Last attempt: %s', 'golf-simulator-theme'), wp_date('Y-m-d H:i:s T', $record['attempted_at']))) . '</p>';
+    }
+    if (!empty($record['error'])) {
+        $output .= '<p>' . esc_html(sprintf(__('Send error: %s', 'golf-simulator-theme'), $record['error'])) . '</p>';
+    }
+    $GLOBALS['golf_simulator_welcome_email_resend_users'][$user_id] = $user_id;
+    $output .= '<button type="submit" class="button button-small" form="ttn-welcome-resend-' . esc_attr($user_id) . '">'
+        . esc_html(__('Resend welcome email', 'golf-simulator-theme')) . '</button>';
+    return $output;
+}
+add_filter('manage_users_custom_column', 'golf_simulator_theme_welcome_email_users_column', 10, 3);
+
+// Keep resend forms outside the Users table's bulk-action form.
+function golf_simulator_theme_welcome_email_users_forms() {
+    foreach ($GLOBALS['golf_simulator_welcome_email_resend_users'] ?? array() as $user_id) {
+        if (!current_user_can('edit_users') || !current_user_can('edit_user', $user_id)) {
+            continue;
+        }
+        ?>
+        <form id="ttn-welcome-resend-<?php echo esc_attr($user_id); ?>" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" method="post">
+            <input type="hidden" name="action" value="golf_simulator_resend_welcome_email" />
+            <input type="hidden" name="user_id" value="<?php echo esc_attr($user_id); ?>" />
+            <?php wp_nonce_field('ttn_resend_welcome_email_' . $user_id, 'ttn_resend_welcome_nonce'); ?>
+        </form>
+        <?php
+    }
+}
+add_action('admin_footer-users.php', 'golf_simulator_theme_welcome_email_users_forms');
+
+function golf_simulator_theme_handle_welcome_email_list_resend() {
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+        wp_die(__('Use the resend button on the Users list.', 'golf-simulator-theme'), '', array('response' => 405));
+    }
+    $user_id = isset($_POST['user_id']) && is_scalar($_POST['user_id']) ? absint($_POST['user_id']) : 0;
+    golf_simulator_theme_check_welcome_email_resend_permission($user_id);
+    if (!$user_id || !get_userdata($user_id)) {
+        wp_die(__('User not found.', 'golf-simulator-theme'), '', array('response' => 404));
+    }
+    $sent = golf_simulator_theme_send_account_welcome_email($user_id);
+    wp_safe_redirect(add_query_arg('ttn_welcome_email_result', $sent ? 'accepted' : 'failed', admin_url('users.php')));
+    exit;
+}
+add_action('admin_post_golf_simulator_resend_welcome_email', 'golf_simulator_theme_handle_welcome_email_list_resend');
+
+function golf_simulator_theme_welcome_email_users_notice() {
+    $screen = get_current_screen();
+    if (!$screen || $screen->id !== 'users' || !current_user_can('edit_users')) {
+        return;
+    }
+    $result = isset($_GET['ttn_welcome_email_result']) && is_string($_GET['ttn_welcome_email_result'])
+        ? sanitize_key(wp_unslash($_GET['ttn_welcome_email_result'])) : '';
+    if (!in_array($result, array('accepted', 'failed'), true)) {
+        return;
+    }
+    $message = $result === 'accepted'
+        ? __('Welcome email accepted by wp_mail. Inbox delivery is not confirmed.', 'golf-simulator-theme')
+        : __('Welcome email could not be sent. Check the user\'s Welcome Email status for details.', 'golf-simulator-theme');
+    echo '<div class="notice ' . ($result === 'accepted' ? 'notice-success' : 'notice-error') . ' is-dismissible"><p>' . esc_html($message) . '</p></div>';
+}
+add_action('admin_notices', 'golf_simulator_theme_welcome_email_users_notice');
 
 function golf_simulator_theme_process_profile_update() {
     if (!is_user_logged_in()) {

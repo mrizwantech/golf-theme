@@ -15,11 +15,13 @@ add_action('after_setup_theme', 'golf_simulator_theme_setup');
 require_once get_template_directory() . '/inc/email-template.php';
 require_once get_template_directory() . '/inc/membership.php';
 require_once get_template_directory() . '/inc/auth.php';
+require_once get_template_directory() . '/inc/contact-email.php';
 require_once get_template_directory() . '/inc/welcome-signup.php';
 require_once get_template_directory() . '/inc/mobile-membership-api.php';
 require_once get_template_directory() . '/inc/home-content.php';
 require_once get_template_directory() . '/inc/golf-technology-content.php';
 require_once get_template_directory() . '/inc/mobile-technology-api.php';
+require_once get_template_directory() . '/inc/hours-content.php';
 
 function golf_simulator_theme_ensure_my_bookings_page() {
     $page = get_page_by_path('my-bookings');

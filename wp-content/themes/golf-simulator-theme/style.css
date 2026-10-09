@@ -761,6 +761,43 @@ img {
     flex: 1;
 }
 
+.header-navigation {
+    display: contents;
+}
+
+.header-menu-toggle {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 44px;
+    padding: 8px 12px;
+    background: transparent;
+    color: var(--heading);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    font: inherit;
+    cursor: pointer;
+}
+
+.header-menu-toggle:focus-visible {
+    outline: 2px solid var(--secondary);
+    outline-offset: 2px;
+}
+
+.header-menu-icon {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 20px;
+}
+
+.header-menu-icon span {
+    height: 2px;
+    width: 100%;
+    background: currentColor;
+}
+
 .brand {
     display: flex;
     align-items: center;
@@ -4349,8 +4386,71 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     }
 
     .header-inner {
-        align-items: flex-start;
+        align-items: center;
+        flex-wrap: wrap;
+        justify-content: space-between;
+    }
+
+    .header-inner > .brand,
+    .header-inner > .custom-logo-link {
+        min-width: 0;
+        max-width: calc(100% - 110px);
+    }
+
+    .header-inner .custom-logo {
+        max-width: 100%;
+        height: auto;
+    }
+
+    .header-inner .brand-fallback {
+        margin-right: 0;
+    }
+
+    .header-navigation {
+        display: flex;
         flex-direction: column;
+        flex-basis: 100%;
+        min-width: 0;
+        gap: 16px;
+    }
+
+    .header-menu-enhanced .header-menu-toggle:not([hidden]) {
+        display: inline-flex;
+        margin-left: auto;
+    }
+
+    .header-menu-enhanced .header-navigation {
+        display: none;
+    }
+
+    .header-menu-enhanced.header-menu-open .header-navigation {
+        display: flex;
+    }
+
+    .header-navigation .site-nav {
+        justify-content: flex-end;
+        text-align: right;
+    }
+
+    .header-navigation .site-nav > ul {
+        flex-direction: column;
+        align-items: stretch;
+        width: 100%;
+        gap: 4px;
+    }
+
+    .header-navigation .site-nav a {
+        padding-top: 12px;
+        padding-bottom: 12px;
+        overflow-wrap: anywhere;
+    }
+
+    .header-navigation .header-user-menu {
+        margin-left: 0;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        border-top: 1px solid var(--border-soft);
+        padding-top: 12px;
     }
 
     .hero-slider,

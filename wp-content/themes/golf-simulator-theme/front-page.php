@@ -5,7 +5,7 @@
     $first_name = get_user_meta($current_user->ID, 'first_name', true);
     $first_name = $first_name ?: $current_user->display_name;
     $first_name = trim(explode(' ', $first_name)[0]);
-    $bookings = function_exists('ttn_get_user_bookings') ? ttn_get_user_bookings($current_user->user_email) : array();
+    $bookings = function_exists('ttn_get_user_bookings') ? ttn_get_user_bookings($current_user->user_email, $current_user->ID) : array();
     $upcoming_bookings = array();
 
     foreach ($bookings as $booking) {

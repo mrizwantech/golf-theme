@@ -15,11 +15,12 @@ if (!is_user_logged_in()) {
 $current_user = wp_get_current_user();
 $user_email = $current_user->user_email;
 $membership = golf_simulator_theme_get_user_membership_record($current_user->ID);
+$scheduled_membership_change = get_user_meta($current_user->ID, '_ttn_membership_change', true);
 $membership_history = golf_simulator_theme_get_membership_history($current_user->ID);
 $upgrade_balance = get_user_meta($current_user->ID, '_membership_upgrade_balance', true);
 
 // Get user's bookings (CRUD: Read)
-$user_bookings = ttn_get_user_bookings($user_email);
+$user_bookings = ttn_get_user_bookings($user_email, $current_user->ID);
 
 // Get time slots and bays (presentation data)
 $time_slots = apply_filters('ttn_get_time_slots', array());
@@ -213,7 +214,7 @@ foreach ($user_bookings as $booking) {
                                 <div class="account-membership-history-item">
                                     <strong><?php echo esc_html(ucfirst($history->action)); ?></strong>
                                     <span><?php echo esc_html(mysql2date(get_option('date_format'), $history->created_at)); ?></span>
-                                    <span><?php echo esc_html($history->previous_package ? $history->previous_package . ' to ' : ''); ?><?php echo esc_html($history->new_package); ?></span>
+                                    <span><?php echo esc_html($history->previous_package ? golf_simulator_theme_get_membership_package_display_name($history->previous_package) . ' to ' : ''); ?><?php echo esc_html(golf_simulator_theme_get_membership_package_display_name($history->new_package)); ?></span>
                                     <?php if ((float) $history->amount > 0) : ?>
                                         <span><?php echo 'cancel' === $history->action || 'downgrade' === $history->action ? 'Refunded' : 'Charged'; ?> $<?php echo esc_html(number_format((float) $history->amount, 2)); ?></span>
                                     <?php endif; ?>
@@ -224,6 +225,10 @@ foreach ($user_bookings as $booking) {
                 <?php endif; ?>
                 <div class="account-membership-actions">
                     <h3>Manage Membership</h3>
+                    <p>Upgrades use prorated checkout. Cancellations and downgrades take effect at the paid-period end. Downgrades require payment for the new period; no automatic refund is issued.</p>
+                    <?php if (is_array($scheduled_membership_change)) : ?>
+                        <p><?php echo esc_html(ucfirst($scheduled_membership_change['action'])); ?> scheduled for <?php echo esc_html(wp_date(get_option('date_format'), $scheduled_membership_change['effective_at'], wp_timezone())); ?>. Your current benefits continue until then.</p>
+                    <?php endif; ?>
                     <?php if ('' !== $upgrade_balance) : ?>
                         <p class="account-membership-note">Next upgrade balance: <strong>$<?php echo esc_html($upgrade_balance); ?></strong>. Payment remains pending until the upgrade is verified.</p>
                     <?php endif; ?>
@@ -246,6 +251,7 @@ foreach ($user_bookings as $booking) {
                                     <option value="downgrade">Downgrade</option>
                                     <option value="pause">Pause</option>
                                     <option value="cancel">Cancel</option>
+                                    <option value="undo">Remove scheduled change</option>
                                 </select>
                             </label>
                             <label>

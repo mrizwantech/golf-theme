@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/membership-management.php';
 
 function golf_simulator_theme_create_membership_table() {
     global $wpdb;
@@ -55,14 +56,17 @@ function golf_simulator_theme_create_membership_history_table() {
 }
 add_action('init', 'golf_simulator_theme_create_membership_history_table');
 
-function golf_simulator_theme_get_user_membership_record($user_id) {
+function golf_simulator_theme_get_user_membership_record($user_id, $apply_scheduled = true) {
     global $wpdb;
 
     $table_name = $wpdb->prefix . 'user_memberships';
 
-    return $wpdb->get_row(
+    $membership = $wpdb->get_row(
         $wpdb->prepare("SELECT * FROM $table_name WHERE user_id = %d ORDER BY id DESC LIMIT 1", absint($user_id))
     );
+    return $apply_scheduled && function_exists('golf_simulator_theme_apply_due_membership_change')
+        ? golf_simulator_theme_apply_due_membership_change(absint($user_id), $membership)
+        : $membership;
 }
 
 function golf_simulator_theme_get_membership_history($user_id) {
@@ -129,7 +133,7 @@ function golf_simulator_theme_save_user_membership_record($args = array()) {
     );
 
     if ($existing) {
-        $wpdb->update(
+        $saved = $wpdb->update(
             $table_name,
             $record,
             array('id' => $existing->id),
@@ -137,15 +141,25 @@ function golf_simulator_theme_save_user_membership_record($args = array()) {
             array('%d')
         );
 
+        if (false === $saved) {
+            error_log('TTN membership record update failed for account ' . $user_id);
+            return false;
+        }
+        do_action('ttn_membership_record_saved', $user_id);
         return $existing->id;
     }
 
-    $wpdb->insert(
+    $saved = $wpdb->insert(
         $table_name,
         $record,
         array('%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s')
     );
 
+    if (false === $saved) {
+        error_log('TTN membership record insert failed for account ' . $user_id);
+        return false;
+    }
+    do_action('ttn_membership_record_saved', $user_id);
     return $wpdb->insert_id;
 }
 
@@ -181,7 +195,7 @@ function golf_simulator_theme_calculate_prorated_upgrade_amount($membership, $ne
         return 0.00;
     }
 
-    $now = current_time('timestamp');
+    $now = time();
     $next_billing_timestamp = mysql2date('U', $membership->next_billing_date, false);
     $start_timestamp = !empty($membership->start_date) ? mysql2date('U', $membership->start_date, false) : strtotime('-1 month', $next_billing_timestamp);
     $remaining_seconds = max(0, $next_billing_timestamp - $now);
@@ -204,7 +218,7 @@ function golf_simulator_theme_calculate_prorated_refund_amount($membership, $new
         return 0.00;
     }
 
-    $now = current_time('timestamp');
+    $now = time();
     $next_billing_timestamp = mysql2date('U', $membership->next_billing_date, false);
     $start_timestamp = !empty($membership->start_date) ? mysql2date('U', $membership->start_date, false) : strtotime('-1 month', $next_billing_timestamp);
     $remaining_seconds = max(0, $next_billing_timestamp - $now);
@@ -273,6 +287,12 @@ function golf_simulator_theme_sync_membership_products() {
 add_action('init', 'golf_simulator_theme_sync_membership_products', 20);
 
 function golf_simulator_theme_add_membership_to_cart_and_redirect($package_name, $is_upgrade = false, $custom_price = null) {
+    if (get_current_user_id()) {
+        $allowed = golf_simulator_theme_require_contact_email(get_current_user_id());
+        if (is_wp_error($allowed)) {
+            wp_die(esc_html($allowed->get_error_message()), '', array('response' => 403));
+        }
+    }
     if (!class_exists('WC_Cart') || !function_exists('wc_get_checkout_url') || !function_exists('WC') || !function_exists('wc_load_cart')) {
         return false;
     }
@@ -298,6 +318,9 @@ function golf_simulator_theme_add_membership_to_cart_and_redirect($package_name,
             'package_name' => $package_name,
             'is_upgrade' => $is_upgrade,
             'custom_price' => ($custom_price !== null && (float) $custom_price >= 0) ? (float) $custom_price : null,
+            'membership_revision' => $is_upgrade
+                ? golf_simulator_theme_membership_revision(golf_simulator_theme_get_user_membership_record(get_current_user_id()))
+                : '',
         ),
     );
 
@@ -342,6 +365,9 @@ function golf_simulator_theme_store_membership_order_line_data($item, $cart_item
         $meta = $values['golf_simulator_membership'];
         $item->add_meta_data('_membership_package_name', $meta['package_name']);
         $item->add_meta_data('_is_membership_upgrade', !empty($meta['is_upgrade']) ? 'yes' : 'no');
+        if (!empty($meta['membership_revision'])) {
+            $item->add_meta_data('_membership_revision', $meta['membership_revision']);
+        }
         if (isset($meta['custom_price']) && $meta['custom_price'] !== null) {
             $item->add_meta_data('_membership_custom_price', (string) $meta['custom_price']);
         }
@@ -401,51 +427,91 @@ function golf_simulator_theme_process_membership_wc_order($order_id) {
 
         if ($package_name) {
             $has_membership = true;
-            $packages = golf_simulator_theme_get_default_membership_packages();
-            $package = $packages[$package_name] ?? array();
-            $is_upgrade = $item->get_meta('_is_membership_upgrade') === 'yes';
-            $current_membership = golf_simulator_theme_get_user_membership_record($user_id);
-            $start_date = ($is_upgrade && $current_membership && !empty($current_membership->start_date))
-                ? $current_membership->start_date
-                : current_time('mysql');
+            golf_simulator_theme_get_user_membership_record($user_id);
+            $membership_lock = golf_simulator_theme_membership_lock($user_id);
+            if (!$membership_lock) {
+                error_log('TTN membership payment reconciliation deferred for account ' . $user_id);
+                $retry = wp_schedule_single_event(time() + 60, 'ttn_membership_payment_retry', array($order_id), true);
+                if (is_wp_error($retry) || false === $retry) {
+                    error_log('TTN membership payment retry could not be scheduled for order ' . $order_id);
+                }
+                return;
+            }
+            try {
+                $packages = golf_simulator_theme_get_default_membership_packages();
+                $package = $packages[$package_name] ?? array();
+                $is_upgrade = $item->get_meta('_is_membership_upgrade') === 'yes';
+                $current_membership = golf_simulator_theme_get_user_membership_record($user_id, false);
+                $expected_revision = $item->get_meta('_membership_revision');
+                if ($is_upgrade && (!$current_membership || 'active' !== $current_membership->status
+                    || 'paid' !== $current_membership->payment_status
+                    || golf_simulator_theme_membership_period_end($current_membership) <= time()
+                    || get_user_meta($user_id, '_ttn_membership_change', true)
+                    || ($expected_revision && !hash_equals(golf_simulator_theme_membership_revision($current_membership), (string) $expected_revision)))) {
+                    $notice = 'Your upgrade payment needs support review because the original paid period ended or your membership changed. Please contact support with order #' . $order_id . '.';
+                    if (!update_user_meta($user_id, '_ttn_membership_payment_notice', $notice)) {
+                        error_log('TTN membership payment review notice could not be saved for account ' . $user_id);
+                    }
+                    if ($order->get_meta('_membership_review_required') !== 'yes') {
+                        $order->add_order_note($notice);
+                        $order->update_meta_data('_membership_review_required', 'yes');
+                        $order->save();
+                    }
+                    error_log('TTN membership upgrade payment requires review for order ' . $order_id);
+                    return;
+                }
+                $start_date = ($is_upgrade && $current_membership && !empty($current_membership->start_date))
+                    ? $current_membership->start_date
+                    : current_time('mysql');
 
-            golf_simulator_theme_save_user_membership_record(array(
-                'user_id' => $user_id,
-                'package_name' => $package_name,
-                'package_slug' => sanitize_title($package_name),
-                'price' => $package['price'] ?? '',
-                'discount_price' => $package['discount_price'] ?? '',
-                'payment_status' => 'paid',
-                'status' => 'active',
-                'payment_date' => current_time('mysql'),
-                'next_billing_date' => date('Y-m-d H:i:s', strtotime('+1 month')),
-                'start_date' => $start_date,
-            ));
-
-            global $wpdb;
-            $wpdb->insert(
-                $wpdb->prefix . 'membership_history',
-                array(
+                $saved = golf_simulator_theme_save_user_membership_record(array(
                     'user_id' => $user_id,
-                    'action' => $is_upgrade ? 'upgrade' : 'signup',
-                    'previous_package' => ($current_membership && $is_upgrade) ? $current_membership->package_name : '',
-                    'new_package' => $package_name,
-                    'amount' => number_format((float) $order->get_total(), 2, '.', ''),
-                    'created_at' => current_time('mysql'),
-                ),
-                array('%d', '%s', '%s', '%s', '%s', '%s')
-            );
+                    'package_name' => $package_name,
+                    'package_slug' => sanitize_title($package_name),
+                    'price' => $package['price'] ?? '',
+                    'discount_price' => $package['discount_price'] ?? '',
+                    'payment_status' => 'paid',
+                    'status' => 'active',
+                    'payment_date' => current_time('mysql'),
+                    'next_billing_date' => ($is_upgrade && $current_membership)
+                        ? $current_membership->next_billing_date
+                        : wp_date('Y-m-d H:i:s', (new DateTimeImmutable('now', wp_timezone()))->modify('+1 month')->getTimestamp(), wp_timezone()),
+                    'start_date' => $start_date,
+                ));
+                if (!$saved) {
+                    return;
+                }
+                delete_user_meta($user_id, '_ttn_membership_change');
+                wp_clear_scheduled_hook('ttn_membership_change_due', array($user_id));
 
-            update_user_meta($user_id, '_membership_last_wc_order_id', $order_id);
-            delete_user_meta($user_id, '_membership_upgrade_balance');
+                global $wpdb;
+                $wpdb->insert(
+                    $wpdb->prefix . 'membership_history',
+                    array(
+                        'user_id' => $user_id,
+                        'action' => $is_upgrade ? 'upgrade' : 'signup',
+                        'previous_package' => ($current_membership && $is_upgrade) ? $current_membership->package_name : '',
+                        'new_package' => $package_name,
+                        'amount' => number_format((float) $order->get_total(), 2, '.', ''),
+                        'created_at' => current_time('mysql'),
+                    ),
+                    array('%d', '%s', '%s', '%s', '%s', '%s')
+                );
 
-            golf_simulator_theme_send_membership_confirmation(
-                $user_id,
-                $package_name,
-                $order->get_total(),
-                'paid',
-                $is_upgrade ? 'Membership upgrade payment confirmed' : 'Membership signup confirmed'
-            );
+                update_user_meta($user_id, '_membership_last_wc_order_id', $order_id);
+                delete_user_meta($user_id, '_membership_upgrade_balance');
+                delete_user_meta($user_id, '_ttn_membership_payment_notice');
+
+                golf_simulator_theme_send_membership_confirmation(
+                    $user_id,
+                    $package_name,
+                    $order->get_total(),
+                    'paid',
+                    $is_upgrade ? 'Membership upgrade payment confirmed' : 'Membership signup confirmed'
+                );
+            } finally {
+                delete_option($membership_lock);
+            }
         }
     }
 
@@ -457,6 +523,7 @@ function golf_simulator_theme_process_membership_wc_order($order_id) {
 add_action('woocommerce_order_status_completed', 'golf_simulator_theme_process_membership_wc_order');
 add_action('woocommerce_order_status_processing', 'golf_simulator_theme_process_membership_wc_order');
 add_action('woocommerce_payment_complete', 'golf_simulator_theme_process_membership_wc_order');
+add_action('ttn_membership_payment_retry', 'golf_simulator_theme_process_membership_wc_order');
 
 function golf_simulator_theme_membership_return_url($return_url, $order) {
     if ($order instanceof WC_Order) {
@@ -1004,7 +1071,9 @@ function golf_simulator_theme_get_default_membership_packages() {
 
 function golf_simulator_theme_get_membership_package_display_name($package_name) {
     $packages = golf_simulator_theme_get_default_membership_packages();
-    return $packages[$package_name]['title'] ?? $package_name;
+    $key = strtoupper(trim($package_name));
+    $key = 'EAGLE' === $key ? 'ALBATROSS' : $key;
+    return $packages[$key]['title'] ?? $package_name;
 }
 
 function golf_simulator_theme_validate_membership_prices($regular_price, $discount_price) {
@@ -1390,6 +1459,7 @@ function golf_simulator_theme_render_membership_manager() {
                     <option value="downgrade"><?php esc_html_e('Downgrade', 'golf-simulator-theme'); ?></option>
                     <option value="pause"><?php esc_html_e('Pause', 'golf-simulator-theme'); ?></option>
                     <option value="cancel"><?php esc_html_e('Cancel', 'golf-simulator-theme'); ?></option>
+                    <option value="undo"><?php esc_html_e('Remove scheduled change', 'golf-simulator-theme'); ?></option>
                 </select>
             </div>
 
@@ -1427,6 +1497,34 @@ function golf_simulator_theme_process_membership_management() {
 
     $package_name = sanitize_text_field(wp_unslash($_POST['membership_package'] ?? 'PAR'));
     $action = sanitize_text_field(wp_unslash($_POST['membership_action'] ?? 'upgrade'));
+    if (in_array($action, array('upgrade', 'downgrade', 'cancel', 'undo'), true)) {
+        $membership = golf_simulator_theme_get_user_membership_record($user_id);
+        $result = golf_simulator_theme_manage_membership(
+            $user_id,
+            in_array($action, array('upgrade', 'downgrade'), true) ? 'change' : $action,
+            $package_name,
+            $membership ? golf_simulator_theme_membership_revision($membership) : ''
+        );
+        if (is_wp_error($result)) {
+            wp_safe_redirect(add_query_arg('membership_error', $result->get_error_message(), home_url('/my-account/')));
+            exit;
+        }
+        if (!empty($result['checkout'])) {
+            golf_simulator_theme_add_membership_to_cart_and_redirect($result['checkout']['package'], true, $result['checkout']['custom_price']);
+            return;
+        }
+        wp_safe_redirect(add_query_arg('membership_notice', $result['message'], home_url('/my-account/')));
+        exit;
+    }
+    if ('pause' !== $action) {
+        wp_die('Choose a valid membership action.', '', array('response' => 400));
+    }
+    if (!in_array($action, array('cancel', 'pause'), true)) {
+        $allowed = golf_simulator_theme_require_contact_email($user_id);
+        if (is_wp_error($allowed)) {
+            wp_die(esc_html($allowed->get_error_message()), '', array('response' => 403));
+        }
+    }
 
     $package_data = golf_simulator_theme_get_default_membership_packages();
     $package = $package_data[$package_name] ?? $package_data['PAR'];

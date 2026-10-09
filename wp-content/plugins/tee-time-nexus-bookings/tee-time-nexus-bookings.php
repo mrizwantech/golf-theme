@@ -13,6 +13,9 @@ if (!defined('ABSPATH')) {
 require_once __DIR__ . '/inc/class-ttn-jwt-auth.php';
 require_once __DIR__ . '/inc/class-ttn-mobile-booking-api.php';
 require_once __DIR__ . '/inc/class-ttn-mobile-checkout-bridge.php';
+require_once __DIR__ . '/inc/class-ttn-kisi-connection.php';
+require_once __DIR__ . '/inc/class-ttn-kisi-access.php';
+require_once __DIR__ . '/inc/class-ttn-push-notifications.php';
 
 // Block anonymous access to the users endpoint (used for enumeration attacks) while leaving other REST routes untouched.
 add_filter('rest_endpoints', function ($endpoints) {
@@ -776,9 +779,79 @@ function ttn_booking_get_order_payment_details($order_id) {
 }
 
 /**
- * Get all bookings for a specific email address
+ * Amounts actually charged for one booking order line (after coupons, including tax).
  */
-function ttn_get_user_bookings($email) {
+function ttn_booking_get_item_charge_summary($item, $order) {
+    $subtotal = (float) $item->get_subtotal() + (float) $item->get_subtotal_tax();
+    $paid = (float) $item->get_total() + (float) $item->get_total_tax();
+    $discount = max(0, round($subtotal - $paid, 2));
+
+    return array(
+        'paid' => round($paid, 2),
+        'discount' => $discount,
+        'coupons' => $discount > 0 ? array_values(array_map('strval', $order->get_coupon_codes())) : array(),
+    );
+}
+
+/**
+ * Charged amount, discount, and coupons for a booking. Falls back to the
+ * WooCommerce order for bookings created before these values were stored.
+ */
+function ttn_booking_get_charge_summary($booking_id) {
+    $paid = get_post_meta($booking_id, 'ttn_booking_amount_paid', true);
+    if ($paid !== '') {
+        $coupons = get_post_meta($booking_id, 'ttn_booking_coupon_codes', true);
+        return array(
+            'paid' => (float) $paid,
+            'discount' => (float) get_post_meta($booking_id, 'ttn_booking_discount', true),
+            'coupons' => is_array($coupons) ? $coupons : array(),
+        );
+    }
+
+    $order_id = (int) get_post_meta($booking_id, 'ttn_booking_order_id', true);
+    if (!$order_id || !function_exists('wc_get_order')) {
+        return null;
+    }
+    $order = wc_get_order($order_id);
+    if (!$order) {
+        return null;
+    }
+
+    $bay = get_post_meta($booking_id, 'ttn_booking_bay', true);
+    $date = get_post_meta($booking_id, 'ttn_booking_date', true);
+    $time = get_post_meta($booking_id, 'ttn_booking_time', true);
+    foreach ($order->get_items() as $item) {
+        if ($item->get_meta('ttn_booking_bay') === $bay
+            && $item->get_meta('ttn_booking_date') === $date
+            && $item->get_meta('ttn_booking_time') === $time) {
+            return ttn_booking_get_item_charge_summary($item, $order);
+        }
+    }
+
+    return null;
+}
+
+function ttn_booking_belongs_to_user($booking_id, $email, $user_id = 0) {
+    $owner_id = (int) get_post_meta($booking_id, 'ttn_booking_user_id', true);
+    if ($owner_id) {
+        if (!$user_id) {
+            $user = get_user_by('email', $email);
+            $user_id = $user ? (int) $user->ID : 0;
+        }
+        return $user_id > 0 && $owner_id === (int) $user_id;
+    }
+    $booking_email = (string) get_post_meta($booking_id, 'ttn_booking_email', true);
+    return $email !== '' && strcasecmp($booking_email, $email) === 0;
+}
+
+/**
+ * Get account-owned bookings, with an email fallback only for ownerless legacy records.
+ */
+function ttn_get_user_bookings($email, $user_id = 0) {
+    if (!$user_id) {
+        $user = get_user_by('email', $email);
+        $user_id = $user ? (int) $user->ID : 0;
+    }
     $user_bookings = array();
     $posts = get_posts(array(
         'post_type' => 'ttn_booking',
@@ -791,8 +864,7 @@ function ttn_get_user_bookings($email) {
         if (get_post_meta($post_id, 'ttn_booking_parent_id', true)) {
             continue;
         }
-        $booking_email = get_post_meta($post_id, 'ttn_booking_email', true);
-        if ($booking_email === $email) {
+        if (ttn_booking_belongs_to_user($post_id, $email, $user_id)) {
             $user_bookings[] = array(
                 'ID' => $post_id,
                 'bay' => ttn_get_bay_display_name(get_post_meta($post_id, 'ttn_booking_bay', true)),
@@ -943,7 +1015,7 @@ function ttn_booking_get_member_included_guest_count($user_id) {
 function ttn_booking_get_membership_booking_window_days($user_id) {
     $package_name = ttn_booking_get_paid_membership_package_name($user_id);
     $windows = array('PAR' => 7, 'BIRDIE' => 14, 'ALBATROSS' => 21);
-    return $windows[$package_name] ?? 0;
+    return $windows[$package_name] ?? 7;
 }
 
 function ttn_booking_get_membership_max_booking_date($user_id) {
@@ -1734,6 +1806,7 @@ function ttn_booking_process_wc_order($order_id) {
         }
 
         $total_price = (($duration - $member_free_hours) * ttn_booking_get_hourly_price($bay)) + $member_guest_charge;
+        $charge = ttn_booking_get_item_charge_summary($item, $order);
         $parent_booking_id = 0;
         for ($index = 0; $index < $duration; $index++) {
             $absolute_slot_index = $start_index + $index;
@@ -1773,6 +1846,19 @@ function ttn_booking_process_wc_order($order_id) {
             if ($index === 0) {
                 $parent_booking_id = $booking_id;
                 update_post_meta($booking_id, 'ttn_booking_order_id', $order->get_id());
+                update_post_meta($booking_id, 'ttn_booking_amount_paid', $charge['paid']);
+                update_post_meta($booking_id, 'ttn_booking_discount', $charge['discount']);
+                update_post_meta($booking_id, 'ttn_booking_coupon_codes', $charge['coupons']);
+                if ($charge['discount'] > 0) {
+                    $order->add_order_note(sprintf(
+                        'Booking %s: list price $%s, discount $%s (%s), charged $%s.',
+                        'TTN-' . str_pad((string) $booking_id, 6, '0', STR_PAD_LEFT),
+                        number_format($total_price, 2),
+                        number_format($charge['discount'], 2),
+                        $charge['coupons'] ? implode(', ', $charge['coupons']) : 'discount',
+                        number_format($charge['paid'], 2)
+                    ));
+                }
 
                 $signature = $item->get_meta('_ttn_booking_signature');
                 $terms_accepted_at = $item->get_meta('_ttn_booking_terms_accepted_at');
@@ -1799,6 +1885,9 @@ function ttn_booking_process_wc_order($order_id) {
                     'duration' => $duration,
                     'players' => $players,
                     'total_price' => $total_price,
+                    'amount_paid' => $charge['paid'],
+                    'discount' => $charge['discount'],
+                    'coupons' => $charge['coupons'],
                     'member_free_hours' => $member_free_hours,
                 );
             }
@@ -1815,9 +1904,14 @@ function ttn_booking_process_wc_order($order_id) {
                 'Time' => $reservation['time'] . ' - ' . $reservation['end_time'],
                 'Duration' => $reservation['duration'] . ($reservation['duration'] === 1 ? ' hour' : ' hours'),
                 'Players' => (string) $reservation['players'],
-                'Amount paid' => '$' . number_format($reservation['total_price'], 2),
-                'Payment status' => 'Paid',
             );
+            if ($reservation['discount'] > 0) {
+                $email_rows['Price'] = '$' . number_format($reservation['total_price'], 2);
+                $email_rows['Discount'] = '-$' . number_format($reservation['discount'], 2)
+                    . ($reservation['coupons'] ? ' (' . implode(', ', $reservation['coupons']) . ')' : '');
+            }
+            $email_rows['Amount paid'] = '$' . number_format($reservation['amount_paid'], 2);
+            $email_rows['Payment status'] = 'Paid';
 
             if ($customer_email) {
                 $customer_message = ttn_booking_render_email(
@@ -3098,6 +3192,7 @@ function ttn_render_booking_dashboard() {
             'updated_at' => get_post_meta($p->ID, 'ttn_booking_updated_at', true) ?: '',
             'payment_status' => get_post_meta($p->ID, 'ttn_booking_payment_status', true) ?: '—',
             'total_price' => get_post_meta($p->ID, 'ttn_booking_total_price', true),
+            'charge' => ttn_booking_get_charge_summary($p->ID),
             'payment' => ttn_booking_get_order_payment_details(get_post_meta($p->ID, 'ttn_booking_order_id', true)),
             'signature_file' => get_post_meta($p->ID, 'ttn_booking_signature_file', true),
             'terms_accepted_at' => get_post_meta($p->ID, 'ttn_booking_terms_accepted_at', true),
@@ -3211,7 +3306,14 @@ function ttn_render_booking_dashboard() {
                             </td>
                             <td>
                                 <?php echo esc_html($b_admin['payment_status']); ?>
-                                <?php if ($b_admin['total_price'] !== '' && $b_admin['total_price'] !== false) : ?>
+                                <?php if (!empty($b_admin['charge']) && $b_admin['charge']['discount'] > 0) : ?>
+                                    <br><small><s>$<?php echo esc_html(number_format((float) $b_admin['total_price'], 2)); ?></s>
+                                    <strong>$<?php echo esc_html(number_format($b_admin['charge']['paid'], 2)); ?></strong></small>
+                                    <br><small style="color: #b45309;">Coupon<?php echo $b_admin['charge']['coupons'] ? ': ' . esc_html(strtoupper(implode(', ', $b_admin['charge']['coupons']))) : ''; ?>
+                                    (-$<?php echo esc_html(number_format($b_admin['charge']['discount'], 2)); ?>)</small>
+                                <?php elseif (!empty($b_admin['charge'])) : ?>
+                                    <br><small>$<?php echo esc_html(number_format($b_admin['charge']['paid'], 2)); ?></small>
+                                <?php elseif ($b_admin['total_price'] !== '' && $b_admin['total_price'] !== false) : ?>
                                     <br><small>$<?php echo esc_html(number_format((float) $b_admin['total_price'], 2)); ?></small>
                                 <?php endif; ?>
                             </td>
@@ -3320,6 +3422,10 @@ function ttn_resend_booking_confirmation($booking_id) {
     $players = intval(get_post_meta($booking_id, 'ttn_booking_players', true) ?: 1);
     $total_price = get_post_meta($booking_id, 'ttn_booking_total_price', true);
     $payment_status = get_post_meta($booking_id, 'ttn_booking_payment_status', true) ?: 'Confirmed';
+    $charge = ttn_booking_get_charge_summary($booking_id);
+    if ($charge && $charge['discount'] > 0 && strpos($payment_status, 'Paid (') !== 0) {
+        $total_price = $charge['paid'];
+    }
 
     $customer_email = ttn_booking_get_customer_email(
         'Booking Confirmed',
@@ -3541,8 +3647,7 @@ function ttn_apply_booking_schedule_update($booking_id, $data) {
  */
 function ttn_crud_update_user_booking($booking_id, $user_email, $booking_data) {
     // Verify booking belongs to user
-    $booking_email = get_post_meta($booking_id, 'ttn_booking_email', true);
-    if ($booking_email !== $user_email) {
+    if (!ttn_booking_belongs_to_user($booking_id, $user_email)) {
         return array('success' => false, 'message' => 'You do not have permission to edit this booking.');
     }
 
@@ -3709,8 +3814,7 @@ function ttn_booking_refund_woocommerce_orders($booking_id) {
 
 function ttn_crud_cancel_user_booking($booking_id, $user_email) {
     // Verify booking belongs to user
-    $booking_email = get_post_meta($booking_id, 'ttn_booking_email', true);
-    if ($booking_email !== $user_email) {
+    if (!ttn_booking_belongs_to_user($booking_id, $user_email)) {
         return array('success' => false, 'message' => 'You do not have permission to cancel this booking.');
     }
 
@@ -3900,4 +4004,3 @@ function ttn_handle_user_cancel_booking() {
 }
 add_action('admin_post_ttn_cancel_user_booking', 'ttn_handle_user_cancel_booking');
 add_action('admin_post_nopriv_ttn_cancel_user_booking', 'ttn_handle_user_cancel_booking');
-
