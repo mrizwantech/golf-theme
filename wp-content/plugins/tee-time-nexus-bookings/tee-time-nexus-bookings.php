@@ -929,6 +929,9 @@ function ttn_save_booking_metadata($post_id, $booking_data) {
     if (isset($booking_data['guest_charge'])) {
         update_post_meta($post_id, 'ttn_booking_guest_charge', max(0, (float) $booking_data['guest_charge']));
     }
+    if (isset($booking_data['member_free_hours'])) {
+        update_post_meta($post_id, 'ttn_booking_member_free_hours', max(0, (int) $booking_data['member_free_hours']));
+    }
     if (isset($booking_data['payment_status'])) {
         update_post_meta($post_id, 'ttn_booking_payment_status', $booking_data['payment_status']);
     }
@@ -1395,6 +1398,52 @@ function ttn_booking_get_bay_product_id($bay_name) {
     return 0;
 }
 
+function ttn_booking_get_member_free_hours_used($user_id, $date) {
+    $used_hours = 0;
+    $bookings = get_posts(array(
+        'post_type' => 'ttn_booking',
+        'post_status' => 'publish',
+        'numberposts' => -1,
+        'meta_query' => array(
+            array('key' => 'ttn_booking_user_id', 'value' => $user_id),
+            array('key' => 'ttn_booking_date', 'value' => $date),
+        ),
+        'fields' => 'ids',
+    ));
+    foreach ($bookings as $booking_id) {
+        if (get_post_meta($booking_id, 'ttn_booking_parent_id', true) || get_post_meta($booking_id, 'ttn_booking_status', true) === 'cancelled') {
+            continue;
+        }
+        $free_hours = get_post_meta($booking_id, 'ttn_booking_member_free_hours', true);
+        if ('' === $free_hours) {
+            $free_hours = ttn_booking_backfill_member_free_hours($booking_id);
+        }
+        $used_hours += (int) $free_hours;
+    }
+    return $used_hours;
+}
+
+// Bookings created before free hours were persisted on the booking only have them on the WooCommerce order line.
+function ttn_booking_backfill_member_free_hours($booking_id) {
+    $order_id = absint(get_post_meta($booking_id, 'ttn_booking_order_id', true));
+    $order = $order_id && function_exists('wc_get_order') ? wc_get_order($order_id) : null;
+    if (!$order) {
+        return 0;
+    }
+    $bay = (string) get_post_meta($booking_id, 'ttn_booking_bay', true);
+    $date = (string) get_post_meta($booking_id, 'ttn_booking_date', true);
+    $time = (string) get_post_meta($booking_id, 'ttn_booking_time', true);
+    foreach ($order->get_items() as $item) {
+        if ((string) $item->get_meta('ttn_booking_bay') === $bay && (string) $item->get_meta('ttn_booking_date') === $date
+            && (string) $item->get_meta('ttn_booking_time') === $time) {
+            $free_hours = max(0, (int) $item->get_meta('ttn_booking_member_free_hours'));
+            update_post_meta($booking_id, 'ttn_booking_member_free_hours', $free_hours);
+            return $free_hours;
+        }
+    }
+    return 0;
+}
+
 function ttn_booking_get_member_free_hours($user_id, $date, $time, $duration) {
     if (!$user_id || !function_exists('golf_simulator_theme_get_user_membership_record')) {
         return 0;
@@ -1412,23 +1461,7 @@ function ttn_booking_get_member_free_hours($user_id, $date, $time, $duration) {
         return 0;
     }
 
-    $used_hours = 0;
-    $bookings = get_posts(array(
-        'post_type' => 'ttn_booking',
-        'post_status' => 'publish',
-        'numberposts' => -1,
-        'meta_query' => array(
-            array('key' => 'ttn_booking_user_id', 'value' => $user_id),
-            array('key' => 'ttn_booking_date', 'value' => $date),
-        ),
-        'fields' => 'ids',
-    ));
-    foreach ($bookings as $booking_id) {
-        if (get_post_meta($booking_id, 'ttn_booking_parent_id', true) || get_post_meta($booking_id, 'ttn_booking_status', true) === 'cancelled') {
-            continue;
-        }
-        $used_hours += (int) get_post_meta($booking_id, 'ttn_booking_member_free_hours', true);
-    }
+    $used_hours = ttn_booking_get_member_free_hours_used($user_id, $date);
 
     return max(0, min((int) $duration, $daily_allowance - $used_hours));
 }
@@ -1524,10 +1557,16 @@ function ttn_booking_add_extension_to_cart_and_redirect($booking_id, $extension_
             'duration' => $extension_data['duration'],
             'price_difference' => $extension_data['price_difference'],
             'new_total_price' => $extension_data['new_total_price'],
+            'member_free_hours' => $extension_data['member_free_hours'] ?? null,
+            'guest_charge' => $extension_data['guest_charge'] ?? null,
+            'quote_id' => $extension_data['quote_id'] ?? '',
+            'revision' => $extension_data['revision'] ?? '',
         ),
     );
 
-    $wc->cart->add_to_cart($product_id, 1, 0, array(), $cart_item_data);
+    if (!$wc->cart->add_to_cart($product_id, 1, 0, array(), $cart_item_data)) {
+        return false;
+    }
 
     return wc_get_checkout_url();
 }
@@ -1594,6 +1633,11 @@ function ttn_booking_store_order_line_data($item, $cart_item_key, $values, $orde
         $item->add_meta_data('_ttn_booking_extension_duration', $ext['duration']);
         $item->add_meta_data('_ttn_booking_extension_price_difference', $ext['price_difference']);
         $item->add_meta_data('_ttn_booking_extension_new_total_price', $ext['new_total_price']);
+        foreach (array('member_free_hours', 'guest_charge', 'quote_id', 'revision') as $key) {
+            if (isset($ext[$key])) {
+                $item->add_meta_data('_ttn_booking_extension_' . $key, $ext[$key]);
+            }
+        }
     } elseif (!empty($values['ttn_booking'])) {
         $booking = $values['ttn_booking'];
         $item->add_meta_data('ttn_booking_bay', $booking['bay']);
@@ -1615,6 +1659,96 @@ function ttn_booking_store_order_line_data($item, $cart_item_key, $values, $orde
     }
 }
 add_action('woocommerce_checkout_create_order_line_item', 'ttn_booking_store_order_line_data', 10, 4);
+
+// Stored keys stay unchanged (bookings are created from them); only the customer-facing labels/values change.
+function ttn_booking_order_meta_labels() {
+    return array(
+        'ttn_booking_bay' => __('Bay', 'tee-time-nexus-bookings'),
+        'ttn_booking_date' => __('Date', 'tee-time-nexus-bookings'),
+        'ttn_booking_time' => __('Start time', 'tee-time-nexus-bookings'),
+        'ttn_booking_duration' => __('Duration', 'tee-time-nexus-bookings'),
+        'ttn_booking_players' => __('Players', 'tee-time-nexus-bookings'),
+        'ttn_booking_club_preference' => __('Clubs', 'tee-time-nexus-bookings'),
+        'ttn_booking_member_free_hours' => __('Free member hours', 'tee-time-nexus-bookings'),
+    );
+}
+
+function ttn_booking_order_meta_display_key($display_key, $meta = null, $item = null) {
+    $key = is_object($meta) && isset($meta->key) ? $meta->key : $display_key;
+    $labels = ttn_booking_order_meta_labels();
+    return $labels[$key] ?? $display_key;
+}
+add_filter('woocommerce_order_item_display_meta_key', 'ttn_booking_order_meta_display_key', 10, 3);
+
+function ttn_booking_order_meta_display_value($display_value, $meta = null, $item = null) {
+    $key = is_object($meta) && isset($meta->key) ? $meta->key : '';
+    $value = is_object($meta) && isset($meta->value) ? (string) $meta->value : wp_strip_all_tags((string) $display_value);
+    switch ($key) {
+        case 'ttn_booking_date':
+            $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value, wp_timezone());
+            return $date && $date->format('Y-m-d') === $value ? esc_html(wp_date('l, F j, Y', $date->getTimestamp(), wp_timezone())) : $display_value;
+        case 'ttn_booking_duration':
+            $hours = (int) $value;
+            return esc_html(sprintf(_n('%d hour', '%d hours', $hours, 'tee-time-nexus-bookings'), $hours));
+        case 'ttn_booking_club_preference':
+            return esc_html('own-clubs' === $value ? __('Own clubs', 'tee-time-nexus-bookings') : ucwords(str_replace('-', ' ', $value)));
+        case 'ttn_booking_member_free_hours':
+            $hours = (int) $value;
+            return esc_html(sprintf(_n('%d hour', '%d hours', $hours, 'tee-time-nexus-bookings'), $hours));
+    }
+    return $display_value;
+}
+add_filter('woocommerce_order_item_display_meta_value', 'ttn_booking_order_meta_display_value', 10, 3);
+
+function ttn_booking_hide_zero_free_hours($formatted_meta, $item) {
+    foreach ($formatted_meta as $id => $meta) {
+        if ($meta->key === 'ttn_booking_member_free_hours' && (int) $meta->value < 1) {
+            unset($formatted_meta[$id]);
+        }
+    }
+    return $formatted_meta;
+}
+add_filter('woocommerce_order_item_get_formatted_meta_data', 'ttn_booking_hide_zero_free_hours', 10, 2);
+
+function ttn_booking_order_has_booking($order) {
+    if (!$order || !is_callable(array($order, 'get_items'))) {
+        return false;
+    }
+    foreach ($order->get_items() as $item) {
+        if ($item->get_meta('ttn_booking_bay') || $item->get_meta('_ttn_booking_extension_booking_id')) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function ttn_booking_current_view_order_is_booking() {
+    static $result = null;
+    if (null !== $result) {
+        return $result;
+    }
+    $result = false;
+    if (!function_exists('wc_get_order') || !function_exists('is_wc_endpoint_url')) {
+        return $result;
+    }
+    $order_id = 0;
+    if (is_wc_endpoint_url('order-received')) {
+        $order_id = absint(get_query_var('order-received'));
+    } elseif (is_wc_endpoint_url('view-order')) {
+        $order_id = absint(get_query_var('view-order'));
+    }
+    $result = $order_id ? ttn_booking_order_has_booking(wc_get_order($order_id)) : false;
+    return $result;
+}
+
+function ttn_booking_order_page_text($translation, $text, $domain) {
+    if ('woocommerce' !== $domain || !in_array($text, array('Order details', 'Product'), true) || is_admin()
+        || !did_action('wp') || !ttn_booking_current_view_order_is_booking()) {
+        return $translation;
+    }
+    return 'Order details' === $text ? __('Booking details', 'tee-time-nexus-bookings') : __('Booking', 'tee-time-nexus-bookings');
+}
+add_filter('gettext', 'ttn_booking_order_page_text', 10, 3);
 
 function ttn_booking_start_woocommerce_checkout() {
     $nonce = sanitize_text_field(wp_unslash($_REQUEST['ttn_booking_checkout_nonce'] ?? ''));
@@ -1953,7 +2087,7 @@ function ttn_booking_process_extension_wc_order($order_id) {
     }
 
     $order = wc_get_order($order_id);
-    if (!$order || $order->get_meta('_ttn_booking_extension_processed') === 'yes') {
+    if (!$order || !$order->is_paid() || $order->get_meta('_ttn_booking_extension_processed') === 'yes') {
         return;
     }
 
@@ -1966,35 +2100,99 @@ function ttn_booking_process_extension_wc_order($order_id) {
             $duration = intval($item->get_meta('_ttn_booking_extension_duration'));
             $price_diff = floatval($item->get_meta('_ttn_booking_extension_price_difference'));
             $new_total_price = floatval($item->get_meta('_ttn_booking_extension_new_total_price'));
-
-            ttn_apply_booking_schedule_update($booking_id, array(
+            $data = array(
                 'bay' => $bay,
                 'date' => $date,
                 'time' => $time,
                 'duration' => $duration,
                 'new_total_price' => $new_total_price,
                 'difference' => $price_diff,
-            ));
+            );
+            $quote_id = $item->get_meta('_ttn_booking_extension_quote_id');
+            if ($quote_id) {
+                if (!ttn_booking_acquire_change_lock($booking_id)) {
+                    $order->add_order_note('Reservation change is busy; payment will be retried for processing.');
+                    wp_schedule_single_event(time() + 30, 'ttn_booking_retry_extension_order', array($order_id));
+                    return;
+                }
+                try {
+                    $order = wc_get_order($order_id);
+                    if ($order->get_meta('_ttn_booking_extension_processed') === 'yes') {
+                        return;
+                    }
+                    $data = ttn_booking_prepare_schedule_change($booking_id, get_user_by('id', $order->get_customer_id()), $data);
+                    if (!is_wp_error($data) && !hash_equals($data['quote_id'], (string) $quote_id)) {
+                        $data = ttn_booking_management_error('The reservation or price changed before payment completed.');
+                    }
+                    $result = is_wp_error($data) ? $data : ttn_apply_booking_schedule_update($booking_id, $data);
+                    if (is_wp_error($result) || empty($result['success'])) {
+                        $message = is_wp_error($result) ? $result->get_error_message() : $result['message'];
+                        $refund = wc_create_refund(array(
+                            'amount' => $order->get_remaining_refund_amount(), 'order_id' => $order->get_id(),
+                            'reason' => $message, 'refund_payment' => true, 'restock_items' => false,
+                        ));
+                        $order->add_order_note('Reservation unchanged: ' . $message . (is_wp_error($refund) ? ' Refund failed: ' . $refund->get_error_message() : ' Payment refunded.'));
+                        $failure = $message . (is_wp_error($refund)
+                            ? ' Payment refund failed: ' . $refund->get_error_message() . '. Please contact support.'
+                            : ' The additional payment was refunded. Your original reservation is unchanged.');
+                        $order->update_meta_data('_ttn_booking_extension_failed', $failure);
+                        wc_add_notice($failure, 'error');
+                        $order->update_meta_data('_ttn_booking_extension_processed', 'yes');
+                        $order->save();
+                        return;
+                    }
+                    ttn_booking_finish_extension_order($booking_id, $order);
+                    return;
+                } finally {
+                    ttn_booking_release_change_lock($booking_id);
+                }
+            } else {
+                ttn_apply_booking_schedule_update($booking_id, $data);
+            }
 
-            $extension_order_ids = get_post_meta($booking_id, 'ttn_booking_extension_order_ids', true);
-            $extension_order_ids = is_array($extension_order_ids) ? $extension_order_ids : array();
-            $extension_order_ids[] = $order->get_id();
-            update_post_meta($booking_id, 'ttn_booking_extension_order_ids', array_values(array_unique(array_map('intval', $extension_order_ids))));
-
-            $order->update_meta_data('_ttn_booking_extension_processed', 'yes');
-            $order->save();
+            ttn_booking_finish_extension_order($booking_id, $order);
         }
     }
+}
+function ttn_booking_finish_extension_order($booking_id, $order) {
+    $extension_order_ids = get_post_meta($booking_id, 'ttn_booking_extension_order_ids', true);
+    $extension_order_ids = is_array($extension_order_ids) ? $extension_order_ids : array();
+    $extension_order_ids[] = $order->get_id();
+    update_post_meta($booking_id, 'ttn_booking_extension_order_ids', array_values(array_unique(array_map('intval', $extension_order_ids))));
+    $order->update_meta_data('_ttn_booking_extension_processed', 'yes');
+    $order->save();
 }
 add_action('woocommerce_order_status_completed', 'ttn_booking_process_extension_wc_order');
 add_action('woocommerce_order_status_processing', 'ttn_booking_process_extension_wc_order');
 add_action('woocommerce_payment_complete', 'ttn_booking_process_extension_wc_order');
+add_action('ttn_booking_retry_extension_order', 'ttn_booking_process_extension_wc_order');
+
+function ttn_booking_validate_reschedule_checkout($checkout_data, $errors) {
+    if (!function_exists('WC') || !WC()->cart) {
+        return;
+    }
+    foreach (WC()->cart->get_cart() as $cart_item) {
+        $extension = $cart_item['ttn_booking_extension'] ?? array();
+        if (empty($extension['quote_id'])) {
+            continue;
+        }
+        $data = ttn_booking_prepare_schedule_change($extension['booking_id'], get_user_by('id', get_current_user_id()), $extension);
+        if (is_wp_error($data) || !hash_equals($data['quote_id'], (string) $extension['quote_id'])) {
+            $errors->add('ttn_reschedule_changed', is_wp_error($data) ? $data->get_error_message() : 'The price or reservation has changed. Return to the app and review the change again.');
+        }
+    }
+}
+add_action('woocommerce_after_checkout_validation', 'ttn_booking_validate_reschedule_checkout', 10, 2);
 
 function ttn_booking_extension_return_url($return_url, $order) {
     if ($order instanceof WC_Order) {
         foreach ($order->get_items() as $item) {
             if ($item->get_meta('_ttn_booking_extension_booking_id')) {
-                return add_query_arg('booking_updated', '1', home_url('/my-account/'));
+                if ($order->get_meta('_ttn_booking_extension_failed')) {
+                    return add_query_arg('booking_change_failed', '1', $return_url);
+                }
+                return $order->get_meta('_ttn_booking_extension_processed') === 'yes'
+                    ? add_query_arg('booking_updated', '1', home_url('/my-account/')) : $return_url;
             }
         }
 
@@ -2288,7 +2486,7 @@ function ttn_booking_shortcode() {
             <div id="ttn-verification-fields" <?php echo $skip_verification ? 'hidden' : ''; ?>>
                 <div style="margin-bottom: 20px;">
                     <label style="display: block; margin-bottom: 8px; font-weight: 600;">Sign to confirm your reservation</label>
-                    <canvas id="ttn-signature-pad" width="500" height="160" style="width: 100%; max-width: 500px; height: 160px; background: #ffffff; border-radius: 10px; border: 2px solid #ffffff; touch-action: none; cursor: crosshair;"></canvas>
+                    <canvas id="ttn-signature-pad" width="500" height="160" style="width: 100%; max-width: 500px; height: 160px; background: #ffffff; border-radius: 10px; border: 2px solid #ffffff; touch-action: none; overscroll-behavior: contain; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; cursor: crosshair;"></canvas>
                     <p style="margin: 6px 0 0;">
                         <button type="button" class="btn btn-small-white" id="ttn-signature-clear">Clear Signature</button>
                     </p>
@@ -2344,7 +2542,7 @@ function ttn_booking_shortcode() {
         let selectedDuration = null;
         let selectedPlayers = null;
         let hasSignature = false;
-        const supportsOvernightBookings = isParMember && timeSlots.length === 24 && timeSlots[0].start === '00:00';
+        const supportsOvernightBookings = isPaidMember && timeSlots.length === 24 && timeSlots[0].start === '00:00';
 
         function dateAfterBookingHours(startDate, hours) {
             const parts = startDate.split('-').map(Number);
@@ -2768,17 +2966,21 @@ function ttn_booking_shortcode() {
                 const rect = canvas.getBoundingClientRect();
                 const scaleX = canvas.width / rect.width;
                 const scaleY = canvas.height / rect.height;
-                const point = e.touches ? e.touches[0] : e;
+                const point = e.touches && e.touches.length ? e.touches[0] : (e.changedTouches && e.changedTouches.length ? e.changedTouches[0] : e);
                 return { x: (point.clientX - rect.left) * scaleX, y: (point.clientY - rect.top) * scaleY };
             }
 
             function start(e) {
+                if (e.pointerType === 'mouse' && e.button !== 0) return;
                 drawing = true;
                 hasSignature = true;
                 const pos = getPos(e);
                 ctx.beginPath();
                 ctx.moveTo(pos.x, pos.y);
-                e.preventDefault();
+                if (e.pointerId !== undefined && canvas.setPointerCapture) {
+                    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+                }
+                if (e.cancelable) e.preventDefault();
             }
 
             function move(e) {
@@ -2786,22 +2988,52 @@ function ttn_booking_shortcode() {
                 const pos = getPos(e);
                 ctx.lineTo(pos.x, pos.y);
                 ctx.stroke();
-                e.preventDefault();
+                if (e.cancelable) e.preventDefault();
             }
 
-            function end() {
+            function end(e) {
                 if (!drawing) return;
                 drawing = false;
+                if (e && e.pointerId !== undefined && canvas.releasePointerCapture) {
+                    try { canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+                }
                 signatureInput.value = canvas.toDataURL('image/png');
                 updateSummary();
             }
 
-            canvas.addEventListener('mousedown', start);
-            canvas.addEventListener('mousemove', move);
-            window.addEventListener('mouseup', end);
-            canvas.addEventListener('touchstart', start, { passive: false });
-            canvas.addEventListener('touchmove', move, { passive: false });
-            canvas.addEventListener('touchend', end);
+            // Stop the page from scrolling under the finger while a stroke is in progress (iOS Safari).
+            function blockScrollWhileDrawing(e) {
+                if (e.target === canvas || drawing) {
+                    if (e.cancelable) e.preventDefault();
+                }
+            }
+
+            if (window.PointerEvent) {
+                canvas.addEventListener('pointerdown', start);
+                canvas.addEventListener('pointermove', move);
+                canvas.addEventListener('pointerup', end);
+                canvas.addEventListener('pointercancel', end);
+                canvas.addEventListener('lostpointercapture', end);
+            } else {
+                canvas.addEventListener('mousedown', start);
+                canvas.addEventListener('mousemove', move);
+                window.addEventListener('mouseup', end);
+            }
+            canvas.addEventListener('touchstart', (e) => {
+                if (e.cancelable) e.preventDefault();
+                if (!window.PointerEvent) start(e);
+            }, { passive: false });
+            canvas.addEventListener('touchmove', (e) => {
+                if (e.cancelable) e.preventDefault();
+                if (!window.PointerEvent) move(e);
+            }, { passive: false });
+            canvas.addEventListener('touchend', (e) => {
+                if (!window.PointerEvent) end(e);
+            });
+            canvas.addEventListener('touchcancel', (e) => {
+                if (!window.PointerEvent) end(e);
+            });
+            document.addEventListener('touchmove', blockScrollWhileDrawing, { passive: false });
 
             if (clearBtn) {
                 clearBtn.addEventListener('click', () => {
@@ -3452,22 +3684,19 @@ function ttn_booking_refund_woocommerce_partial($booking_id, $refund_amount) {
         return array('issued' => false, 'amount' => 0.0);
     }
 
-    $order_ids = array_filter(array_merge(
-        array(intval(get_post_meta($booking_id, 'ttn_booking_order_id', true))),
-        (array) get_post_meta($booking_id, 'ttn_booking_extension_order_ids', true)
-    ));
+    $orders = ttn_booking_get_refundable_orders($booking_id);
+    if (is_wp_error($orders)) {
+        return array('issued' => false, 'amount' => 0.0, 'error' => $orders->get_error_message());
+    }
     $remaining_amount = (float) $refund_amount;
     $refunded_amount = 0.0;
 
-    foreach (array_unique(array_map('intval', $order_ids)) as $order_id) {
+    foreach (array_reverse($orders) as $order) {
         if ($remaining_amount <= 0) {
             break;
         }
 
-        $order = wc_get_order($order_id);
-        if (!$order) {
-            continue;
-        }
+        $order_id = $order->get_id();
 
         $available_amount = method_exists($order, 'get_remaining_refund_amount')
             ? (float) $order->get_remaining_refund_amount()
@@ -3487,6 +3716,9 @@ function ttn_booking_refund_woocommerce_partial($booking_id, $refund_amount) {
         if (!is_wp_error($refund)) {
             $refunded_amount += $amount;
             $remaining_amount -= $amount;
+        } else {
+            $order->add_order_note('Reservation refund failed: ' . $refund->get_error_message());
+            return array('issued' => false, 'amount' => $refunded_amount, 'error' => $refund->get_error_message());
         }
     }
 
@@ -3507,7 +3739,7 @@ function ttn_apply_booking_schedule_update($booking_id, $data) {
     $new_total_price = floatval($data['new_total_price']);
     $difference = floatval($data['difference'] ?? 0);
 
-    // 1. Delete all existing child posts for this parent booking
+    // Keep the old slots until any refund and replacement slots have succeeded.
     $child_posts = get_posts(array(
         'post_type' => 'ttn_booking',
         'meta_key' => 'ttn_booking_parent_id',
@@ -3515,9 +3747,6 @@ function ttn_apply_booking_schedule_update($booking_id, $data) {
         'numberposts' => -1,
         'fields' => 'ids',
     ));
-    foreach ($child_posts as $child_id) {
-        wp_delete_post($child_id, true);
-    }
 
     // 2. Handle refund if duration was reduced ($difference < 0)
     $refund_issued = false;
@@ -3530,6 +3759,9 @@ function ttn_apply_booking_schedule_update($booking_id, $data) {
         $refund_note = $refund_issued
             ? sprintf('Refund of $%s issued.', number_format($refund_result['amount'], 2))
             : sprintf('Refund of $%s could not be processed automatically.', number_format($refund_amount, 2));
+        if (!$refund_issued || round($refund_result['amount'], 2) < round($refund_amount, 2)) {
+            return array('success' => false, 'message' => ($refund_result['error'] ?? $refund_note) . ' Your reservation has not been changed. Please contact support.');
+        }
     }
 
     // 3. Create new consecutive child posts if duration > 1
@@ -3542,6 +3774,7 @@ function ttn_apply_booking_schedule_update($booking_id, $data) {
         }
     }
 
+    $created_children = array();
     for ($i = 1; $i < $duration; $i++) {
         $hour_slot = $time_slots[$start_index + $i] ?? null;
         if (!$hour_slot) {
@@ -3556,6 +3789,7 @@ function ttn_apply_booking_schedule_update($booking_id, $data) {
         ));
 
         if (!is_wp_error($child_id) && $child_id) {
+            $created_children[] = $child_id;
             ttn_save_booking_metadata($child_id, array(
                 'name' => $name,
                 'phone' => $phone,
@@ -3569,7 +3803,15 @@ function ttn_apply_booking_schedule_update($booking_id, $data) {
                 'parent_id' => $booking_id,
                 'user_id' => $user_id,
             ));
+        } else {
+            foreach ($created_children as $created_id) {
+                wp_delete_post($created_id, true);
+            }
+            return array('success' => false, 'message' => 'Unable to save the new time slots. Your reservation was not changed.' . ($refund_issued ? ' ' . $refund_note : '') . ' Please contact support.');
         }
+    }
+    foreach ($child_posts as $child_id) {
+        wp_delete_post($child_id, true);
     }
 
     // 4. Update parent post
@@ -3583,6 +3825,8 @@ function ttn_apply_booking_schedule_update($booking_id, $data) {
         'time' => $time,
         'duration' => $duration,
         'total_price' => $new_total_price,
+        'member_free_hours' => $data['member_free_hours'] ?? null,
+        'guest_charge' => $data['guest_charge'] ?? null,
         'payment_status' => $payment_status,
         'status' => 'updated',
         'updated_at' => current_time('mysql'),
@@ -3651,97 +3895,19 @@ function ttn_crud_update_user_booking($booking_id, $user_email, $booking_data) {
         return array('success' => false, 'message' => 'You do not have permission to edit this booking.');
     }
 
-    // Enforce 24-hour self-service cutoff; after that, customers must contact support.
-    $existing_date = get_post_meta($booking_id, 'ttn_booking_date', true);
-    $existing_time = get_post_meta($booking_id, 'ttn_booking_time', true);
-    if (!ttn_booking_is_within_self_service_window($existing_date, $existing_time)) {
-        return array(
-            'success' => false,
-            'message' => 'This reservation starts in less than 24 hours, so it can no longer be modified online. Please call us at +1 (980) 503-3288 for help.',
-        );
+    $user = get_user_by('email', $user_email);
+    if (empty($booking_data['bay'])) {
+        $booking_data['bay'] = get_post_meta($booking_id, 'ttn_booking_bay', true);
     }
-
-    // Validate required fields
-    if (empty($booking_data['date']) || empty($booking_data['time']) || empty($booking_data['duration'])) {
-        return array('success' => false, 'message' => 'Missing required booking information.');
+    $data = ttn_booking_prepare_schedule_change($booking_id, $user, $booking_data);
+    if (is_wp_error($data)) {
+        return array('success' => false, 'message' => $data->get_error_message());
     }
-
-    // Validate date is not in past
-    $time_slots = ttn_booking_get_all_time_slots();
-    $selected_slot = null;
-    $start_index = null;
-    $time_normalized = ttn_normalize_string($booking_data['time']);
-
-    foreach ($time_slots as $index => $slot) {
-        if (ttn_normalize_string($slot['label']) === $time_normalized) {
-            $selected_slot = $slot;
-            $start_index = $index;
-            break;
-        }
-    }
-
-    if (!$selected_slot) {
-        return array('success' => false, 'message' => 'Invalid time slot.');
-    }
-
-    if (ttn_booking_is_slot_in_past($booking_data['date'], $selected_slot['start'])) {
-        return array('success' => false, 'message' => 'Cannot book a time slot in the past.');
-    }
-
-    $new_duration = intval($booking_data['duration']);
-    if ($start_index + $new_duration > count($time_slots)) {
-        return array('success' => false, 'message' => 'Not enough consecutive hours available for the selected time.');
-    }
-
-    $new_bay = !empty($booking_data['bay']) ? $booking_data['bay'] : get_post_meta($booking_id, 'ttn_booking_bay', true);
-    $new_date = $booking_data['date'];
-
-    // Check availability excluding current booking & its child posts
-    $bookings = ttn_booking_get_booking_records();
-    $existing_child_ids = get_posts(array(
-        'post_type' => 'ttn_booking',
-        'meta_key' => 'ttn_booking_parent_id',
-        'meta_value' => $booking_id,
-        'numberposts' => -1,
-        'fields' => 'ids',
-    ));
-    $ignored_ids = array_merge(array($booking_id), (array) $existing_child_ids);
-
-    for ($i = 0; $i < $new_duration; $i++) {
-        $check_slot = $time_slots[$start_index + $i];
-        foreach ($bookings as $b) {
-            if (in_array((int) ($b['id'] ?? 0), $ignored_ids, true)) {
-                continue;
-            }
-            $b_bay = ttn_normalize_bay_name($b['bay']);
-            $target_bay = ttn_normalize_bay_name($new_bay);
-            if ($b_bay === $target_bay && $b['date'] === $new_date && $b['time'] === $check_slot['label']) {
-                return array('success' => false, 'message' => 'One or more of the requested time slots are already booked. Please choose another time.');
-            }
-        }
-    }
-
-    $old_duration = intval(get_post_meta($booking_id, 'ttn_booking_duration', true) ?: 1);
-    $old_bay = get_post_meta($booking_id, 'ttn_booking_bay', true);
-    $old_hourly_price = ttn_booking_get_hourly_price($old_bay);
-    $old_total_price = floatval(get_post_meta($booking_id, 'ttn_booking_total_price', true) ?: ($old_duration * $old_hourly_price));
-
-    $new_hourly_price = ttn_booking_get_hourly_price($new_bay);
-    $new_total_price = $new_duration * $new_hourly_price;
-    $difference = $new_total_price - $old_total_price;
+    $difference = $data['difference'];
 
     // Case 1: Increase in Duration (Redirect to WooCommerce Checkout for remaining balance)
     if ($difference > 0) {
-        $checkout_url = ttn_booking_add_extension_to_cart_and_redirect($booking_id, array(
-            'booking_id' => $booking_id,
-            'bay' => $new_bay,
-            'date' => $new_date,
-            'time' => $selected_slot['label'],
-            'duration' => $new_duration,
-            'price_difference' => $difference,
-            'new_total_price' => $new_total_price,
-            'user_email' => $user_email,
-        ));
+        $checkout_url = ttn_booking_add_extension_to_cart_and_redirect($booking_id, array_merge($data, array('price_difference' => $difference)));
 
         if ($checkout_url) {
             return array(
@@ -3758,14 +3924,7 @@ function ttn_crud_update_user_booking($booking_id, $user_email, $booking_data) {
     }
 
     // Case 2 & 3: Decrease or Same Duration
-    return ttn_apply_booking_schedule_update($booking_id, array(
-        'bay' => $new_bay,
-        'date' => $new_date,
-        'time' => $selected_slot['label'],
-        'duration' => $new_duration,
-        'new_total_price' => $new_total_price,
-        'difference' => $difference,
-    ));
+    return ttn_apply_booking_schedule_update($booking_id, $data);
 }
 
 /**
@@ -3777,18 +3936,14 @@ function ttn_booking_refund_woocommerce_orders($booking_id) {
         return array('issued' => false, 'amount' => 0.0);
     }
 
-    $order_ids = array_filter(array_merge(
-        array(intval(get_post_meta($booking_id, 'ttn_booking_order_id', true))),
-        (array) get_post_meta($booking_id, 'ttn_booking_extension_order_ids', true)
-    ));
+    $orders = ttn_booking_get_refundable_orders($booking_id);
+    if (is_wp_error($orders)) {
+        return array('issued' => false, 'amount' => 0.0, 'error' => $orders->get_error_message());
+    }
     $refund_total = 0.0;
 
-    foreach (array_unique(array_map('intval', $order_ids)) as $order_id) {
-        $order = wc_get_order($order_id);
-        if (!$order) {
-            continue;
-        }
-
+    foreach ($orders as $order) {
+        $order_id = $order->get_id();
         $refundable_amount = method_exists($order, 'get_remaining_refund_amount')
             ? (float) $order->get_remaining_refund_amount()
             : max(0, (float) $order->get_total() - abs((float) $order->get_total_refunded()));
@@ -3804,12 +3959,30 @@ function ttn_booking_refund_woocommerce_orders($booking_id) {
             'restock_items' => false,
         ));
 
-        if (!is_wp_error($refund)) {
-            $refund_total += $refundable_amount;
+        if (is_wp_error($refund)) {
+            $order->add_order_note('Cancellation refund failed: ' . $refund->get_error_message());
+            return array('issued' => false, 'amount' => $refund_total, 'error' => $refund->get_error_message());
         }
+        $refund_total += $refundable_amount;
     }
 
     return array('issued' => $refund_total > 0, 'amount' => $refund_total);
+}
+
+function ttn_booking_get_refundable_orders($booking_id) {
+    $order_ids = array_filter(array_merge(
+        array(intval(get_post_meta($booking_id, 'ttn_booking_order_id', true))),
+        (array) get_post_meta($booking_id, 'ttn_booking_extension_order_ids', true)
+    ));
+    $orders = array();
+    foreach (array_unique(array_map('intval', $order_ids)) as $order_id) {
+        $order = wc_get_order($order_id);
+        if (!$order || count($order->get_items()) !== 1) {
+            return ttn_booking_management_error('This order needs support to process its refund safely. Please call +1 (980) 503-3288.');
+        }
+        $orders[] = $order;
+    }
+    return $orders;
 }
 
 function ttn_crud_cancel_user_booking($booking_id, $user_email) {
@@ -3822,6 +3995,9 @@ function ttn_crud_cancel_user_booking($booking_id, $user_email) {
     $booking = get_post($booking_id);
     if (!$booking || $booking->post_type !== 'ttn_booking') {
         return array('success' => false, 'message' => 'Booking not found.');
+    }
+    if (get_post_meta($booking_id, 'ttn_booking_status', true) === 'cancelled') {
+        return array('success' => false, 'message' => 'This reservation is already cancelled.');
     }
 
     // Enforce 24-hour self-service cutoff; after that, customers must contact support.
@@ -3842,17 +4018,19 @@ function ttn_crud_cancel_user_booking($booking_id, $user_email) {
         'numberposts' => -1,
         'fields' => 'ids',
     ));
-    foreach ($child_posts as $child_id) {
-        wp_delete_post($child_id, true);
-    }
-
     // Refund the linked WooCommerce order(s) through their active payment gateway.
     $refund_issued = false;
     $refund_total = 0.0;
     $woocommerce_refund = ttn_booking_refund_woocommerce_orders($booking_id);
+    if (!empty($woocommerce_refund['error'])) {
+        return array('success' => false, 'message' => 'Cancellation was not completed: ' . $woocommerce_refund['error'] . ' Your reservation is unchanged. Please contact support.');
+    }
     if ($woocommerce_refund['issued']) {
         $refund_issued = true;
         $refund_total = $woocommerce_refund['amount'];
+    }
+    foreach ($child_posts as $child_id) {
+        wp_delete_post($child_id, true);
     }
 
     $cancel_time = current_time('mysql');
@@ -3862,6 +4040,7 @@ function ttn_crud_cancel_user_booking($booking_id, $user_email) {
 
     // Notify Customer
     $name = get_post_meta($booking_id, 'ttn_booking_name', true);
+    $booking_email = get_post_meta($booking_id, 'ttn_booking_email', true);
     $bay = get_post_meta($booking_id, 'ttn_booking_bay', true);
     $date = get_post_meta($booking_id, 'ttn_booking_date', true);
     $time = get_post_meta($booking_id, 'ttn_booking_time', true);
