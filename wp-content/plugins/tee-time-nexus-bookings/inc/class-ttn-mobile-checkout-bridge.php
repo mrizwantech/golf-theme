@@ -176,6 +176,15 @@ function ttn_mobile_handle_checkout_bridge() {
     wp_set_current_user($user_id);
     wp_set_auth_cookie($user_id, true);
 
+    if ($bridge['type'] === 'booking') {
+        $data = $bridge['data'];
+        $time_slots = !empty($data['member_overnight']) ? ttn_booking_get_all_time_slots() : ttn_booking_get_public_time_slots();
+        $bookings = ttn_booking_get_booking_records();
+        if (!ttn_booking_check_availability_for_duration($data['bay'], $data['date'], $data['time'], $data['duration'], $time_slots, $bookings)) {
+            wp_die(__('This tee time was just booked by another customer. Please return to the app and choose another time.', 'tee-time-nexus-bookings'));
+        }
+    }
+
     if (function_exists('wc_load_cart') && function_exists('WC')) {
         wc_load_cart();
         $wc = WC();

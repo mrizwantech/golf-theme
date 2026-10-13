@@ -21,11 +21,6 @@ if (have_posts()) {
     </header>
 
     <div class="privacy-policy-body">
-        <?php if (!empty($custom_content)) : ?>
-            <div class="entry-content">
-                <?php the_content(); ?>
-            </div>
-        <?php else : ?>
             <h2>1. Who we are and what this policy covers</h2>
             <p>Tee Time Nexus is operated by <strong>Far Nexus LLC</strong>, doing business as Tee Time Nexus (&ldquo;Tee Time Nexus,&rdquo; &ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;). This Privacy Policy explains how we collect, use, disclose, and protect personal information when you use <a href="<?php echo esc_url(home_url('/')); ?>">https://teetimenexus.com</a>, our Tee Time Nexus iOS and Android applications, and related account, booking, membership, competition, notification, and facility-access services.</p>
             <p>This policy does not replace our booking terms, cancellation policy, membership terms, or event rules. Third-party services that you visit or use independently may have their own privacy policies.</p>
@@ -155,7 +150,6 @@ if (have_posts()) {
                     <strong>Phone:</strong> <a href="tel:+19805033288">+1 (980) 503-3288</a>
                 </address>
             </div>
-        <?php endif; ?>
     </div>
 </main>
 <?php get_footer(); ?>

@@ -1330,6 +1330,147 @@ function ttn_booking_check_availability_for_duration($bay, $date, $start_time_la
     return true; // All slots are available
 }
 
+/**
+ * Finds alternative slot suggestions when a requested tee time has been booked by another customer.
+ * - Searches for other bays available at the exact same date and time.
+ * - Searches for the next available time slots in the same bay on that date.
+ */
+function ttn_booking_find_alternative_slots($bay, $date, $time, $duration, $user_id = 0) {
+    $alternatives = array(
+        'bay_alternatives' => array(),
+        'time_alternatives' => array(),
+    );
+
+    $user_id = $user_id ? (int) $user_id : get_current_user_id();
+    $time_slots = ttn_booking_get_time_slots($user_id);
+    $bookings = ttn_booking_get_booking_records();
+    $bay_configs = ttn_booking_get_bay_configs();
+    $requested_bay_norm = sanitize_key(ttn_normalize_bay_name($bay));
+
+    // 1. Same time, other bays
+    foreach ($bay_configs as $key => $config) {
+        $other_bay_name = $config['name'] ?? $key;
+        $other_bay_norm = sanitize_key(ttn_normalize_bay_name($other_bay_name));
+        if ($other_bay_norm === $requested_bay_norm) {
+            continue;
+        }
+
+        if (ttn_booking_check_availability_for_duration($other_bay_name, $date, $time, $duration, $time_slots, $bookings)) {
+            $alternatives['bay_alternatives'][] = array(
+                'bay' => $other_bay_name,
+                'bay_key' => $key,
+                'date' => $date,
+                'time' => $time,
+                'duration' => $duration,
+            );
+        }
+    }
+
+    // 2. Same bay, other time slots on the same date
+    $current_slot_index = array_search($time, array_column($time_slots, 'label'), true);
+    if ($current_slot_index !== false) {
+        foreach ($time_slots as $idx => $slot) {
+            if ($slot['label'] === $time) {
+                continue;
+            }
+            if (ttn_booking_is_slot_in_past($date, $slot['start'])) {
+                continue;
+            }
+
+            if (ttn_booking_check_availability_for_duration($bay, $date, $slot['label'], $duration, $time_slots, $bookings)) {
+                $distance = abs($idx - $current_slot_index);
+                $alternatives['time_alternatives'][] = array(
+                    'bay' => $bay,
+                    'date' => $date,
+                    'time' => $slot['label'],
+                    'duration' => $duration,
+                    'distance' => $distance,
+                );
+            }
+        }
+
+        usort($alternatives['time_alternatives'], function ($a, $b) {
+            return $a['distance'] <=> $b['distance'];
+        });
+
+        $alternatives['time_alternatives'] = array_slice($alternatives['time_alternatives'], 0, 3);
+        foreach ($alternatives['time_alternatives'] as &$alt) {
+            unset($alt['distance']);
+        }
+        unset($alt);
+    }
+
+    return $alternatives;
+}
+
+/**
+ * Formats alternative slot suggestions as friendly user-facing text.
+ */
+function ttn_booking_format_alternatives_message($alternatives) {
+    $parts = array();
+
+    if (!empty($alternatives['bay_alternatives'])) {
+        $bay_names = array();
+        foreach ($alternatives['bay_alternatives'] as $alt) {
+            $bay_names[] = ttn_get_bay_display_name($alt['bay']);
+        }
+        $parts[] = sprintf(
+            __('Good news: %s %s available at the same time (%s)!', 'tee-time-nexus-bookings'),
+            implode(' and ', array_slice($bay_names, 0, 2)),
+            count($bay_names) > 1 ? __('are', 'tee-time-nexus-bookings') : __('is', 'tee-time-nexus-bookings'),
+            $alternatives['bay_alternatives'][0]['time']
+        );
+    }
+
+    if (!empty($alternatives['time_alternatives'])) {
+        $times = array_column(array_slice($alternatives['time_alternatives'], 0, 2), 'time');
+        $parts[] = sprintf(
+            __('Or choose another time in %s: %s.', 'tee-time-nexus-bookings'),
+            ttn_get_bay_display_name($alternatives['time_alternatives'][0]['bay']),
+            implode(' or ', $times)
+        );
+    }
+
+    return implode(' ', $parts);
+}
+
+/**
+ * Concurrency control: Atomic execution locks for payment completion.
+ */
+function ttn_booking_acquire_slot_execution_lock($lock_key, $ttl = 25) {
+    $token = wp_generate_password(24, false);
+    $value = wp_json_encode(array('token' => $token, 'expires' => time() + $ttl));
+    if (!add_option($lock_key, $value, '', false)) {
+        $old = get_option($lock_key);
+        $decoded = is_string($old) ? json_decode($old, true) : null;
+        if (!is_array($decoded) || ($decoded['expires'] ?? PHP_INT_MAX) > time()) {
+            return false;
+        }
+        global $wpdb;
+        if ($wpdb) {
+            $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s", $lock_key, $old));
+        } else {
+            delete_option($lock_key);
+        }
+        if (function_exists('wp_cache_delete')) {
+            wp_cache_delete($lock_key, 'options');
+        }
+        if (!add_option($lock_key, $value, '', false)) {
+            return false;
+        }
+    }
+    $GLOBALS['ttn_slot_exec_locks'][$lock_key] = $value;
+    return true;
+}
+
+function ttn_booking_release_slot_execution_lock($lock_key) {
+    $value = $GLOBALS['ttn_slot_exec_locks'][$lock_key] ?? null;
+    if ($value !== null && get_option($lock_key) === $value) {
+        delete_option($lock_key);
+    }
+    unset($GLOBALS['ttn_slot_exec_locks'][$lock_key]);
+}
+
 function ttn_booking_get_calendar_html($bay = '') {
     $month = current_time('m');
     $year = current_time('Y');
@@ -1829,6 +1970,8 @@ function ttn_booking_start_woocommerce_checkout() {
     $member_guest_charge = ttn_booking_get_member_guest_charge($current_user_id, $players, $duration);
     $member_overnight = (bool) $member_package_name;
 
+
+
     $checkout_url = ttn_booking_add_to_cart_and_redirect($bay, array(
         'bay' => $bay,
         'date' => $date,
@@ -1859,7 +2002,7 @@ function ttn_booking_process_wc_order($order_id) {
     }
 
     $order = wc_get_order($order_id);
-    if (!$order || $order->get_meta('_ttn_booking_processed') === 'yes') {
+    if (!$order || $order->get_meta('_ttn_booking_processed') === 'yes' || $order->get_meta('_ttn_booking_processed') === 'failed') {
         return;
     }
 
@@ -1940,92 +2083,147 @@ function ttn_booking_process_wc_order($order_id) {
             continue;
         }
 
-        $total_price = (($duration - $member_free_hours) * ttn_booking_get_hourly_price($bay)) + $member_guest_charge;
-        $charge = ttn_booking_get_item_charge_summary($item, $order);
-        $parent_booking_id = 0;
-        for ($index = 0; $index < $duration; $index++) {
-            $absolute_slot_index = $start_index + $index;
-            $slot = $time_slots[$absolute_slot_index % count($time_slots)];
-            $slot_date = $booking_start_date->modify('+' . intdiv($absolute_slot_index, count($time_slots)) . ' days')->format('Y-m-d');
-            $booking_id = wp_insert_post(array(
-                'post_type' => 'ttn_booking',
-                'post_status' => 'publish',
-                'post_title' => $customer_name . ' - ' . $bay . ' - ' . $slot_date,
-            ), true);
+        $bay_norm = sanitize_key(ttn_normalize_bay_name($bay));
+        $exec_lock_key = "ttn_exec_lock_{$bay_norm}_{$date}_" . sanitize_key($time);
+        if (!ttn_booking_acquire_slot_execution_lock($exec_lock_key, 25)) {
+            if (function_exists('wp_schedule_single_event') && function_exists('wp_next_scheduled')) {
+                if (!wp_next_scheduled('ttn_booking_retry_wc_order', array($order_id))) {
+                    wp_schedule_single_event(time() + 15, 'ttn_booking_retry_wc_order', array($order_id));
+                }
+            }
+            return;
+        }
 
-            if (is_wp_error($booking_id)) {
-                continue;
+        try {
+            $fresh_order = wc_get_order($order_id);
+            if ($fresh_order && in_array($fresh_order->get_meta('_ttn_booking_processed'), array('yes', 'failed'), true)) {
+                return;
             }
 
-            ttn_save_booking_metadata($booking_id, array(
-                'name' => $customer_name,
-                'phone' => $customer_phone,
-                'email' => $customer_email,
-                'bay' => $bay,
-                'date' => $slot_date,
-                'time' => $slot['label'],
-                'duration' => $duration,
-                'players' => $players,
-                'club_preference' => $club_preference,
-                'member_free_hours' => $member_free_hours,
-                'guest_charge' => $member_guest_charge,
-                'member_booking' => function_exists('golf_simulator_theme_get_user_membership_record') && $user_id && ($membership = golf_simulator_theme_get_user_membership_record($user_id)) && $membership->status === 'active' ? '1' : '0',
-                'total_price' => $total_price,
-                'payment_status' => 'Paid',
-                'parent_id' => $index > 0 ? $parent_booking_id : null,
-                'user_id' => $user_id,
-                'status' => 'confirmed',
-                'updated_at' => current_time('mysql'),
-            ));
+            // Fresh database availability re-check to detect if a competing checkout claimed the slot
+            $current_bookings = ttn_booking_get_booking_records();
+            if (!ttn_booking_check_availability_for_duration($bay, $date, $time, $duration, $time_slots, $current_bookings)) {
+                $refund_note = '';
+                if (function_exists('wc_create_refund') && $order->is_paid()) {
+                    $refund_amount = $order->get_remaining_refund_amount();
+                    if ($refund_amount > 0) {
+                        $refund = wc_create_refund(array(
+                            'amount' => $refund_amount,
+                            'order_id' => $order->get_id(),
+                            'reason' => __('Tee time already booked by a competing checkout; automatically refunded.', 'tee-time-nexus-bookings'),
+                            'refund_payment' => true,
+                            'restock_items' => false,
+                        ));
+                        $refund_note = is_wp_error($refund)
+                            ? ' Automatic refund attempt failed: ' . $refund->get_error_message() . '. Please refund manually.'
+                            : ' Full automatic refund of $' . number_format($refund_amount, 2) . ' was processed.';
+                    }
+                }
+                $order->add_order_note(sprintf(
+                    __('Booking collision: %s on %s at %s was already booked by another order.%s', 'tee-time-nexus-bookings'),
+                    $bay, $date, $time, $refund_note
+                ));
+                $alts = ttn_booking_find_alternative_slots($bay, $date, $time, $duration, $user_id);
+                $alt_msg = ttn_booking_format_alternatives_message($alts);
+                $order->update_meta_data('_ttn_booking_failed', 'overbooked');
+                $order->update_meta_data('_ttn_booking_alternatives', $alts);
+                if ($alt_msg) {
+                    $order->update_meta_data('_ttn_booking_alternatives_message', $alt_msg);
+                }
+                $order->update_meta_data('_ttn_booking_processed', 'failed');
+                $order->save();
+                return;
+            }
 
-            if ($index === 0) {
-                $parent_booking_id = $booking_id;
-                update_post_meta($booking_id, 'ttn_booking_order_id', $order->get_id());
-                update_post_meta($booking_id, 'ttn_booking_amount_paid', $charge['paid']);
-                update_post_meta($booking_id, 'ttn_booking_discount', $charge['discount']);
-                update_post_meta($booking_id, 'ttn_booking_coupon_codes', $charge['coupons']);
-                if ($charge['discount'] > 0) {
-                    $order->add_order_note(sprintf(
-                        'Booking %s: list price $%s, discount $%s (%s), charged $%s.',
-                        'TTN-' . str_pad((string) $booking_id, 6, '0', STR_PAD_LEFT),
-                        number_format($total_price, 2),
-                        number_format($charge['discount'], 2),
-                        $charge['coupons'] ? implode(', ', $charge['coupons']) : 'discount',
-                        number_format($charge['paid'], 2)
-                    ));
+            $total_price = (($duration - $member_free_hours) * ttn_booking_get_hourly_price($bay)) + $member_guest_charge;
+            $charge = ttn_booking_get_item_charge_summary($item, $order);
+            $parent_booking_id = 0;
+            for ($index = 0; $index < $duration; $index++) {
+                $absolute_slot_index = $start_index + $index;
+                $slot = $time_slots[$absolute_slot_index % count($time_slots)];
+                $slot_date = $booking_start_date->modify('+' . intdiv($absolute_slot_index, count($time_slots)) . ' days')->format('Y-m-d');
+                $booking_id = wp_insert_post(array(
+                    'post_type' => 'ttn_booking',
+                    'post_status' => 'publish',
+                    'post_title' => $customer_name . ' - ' . $bay . ' - ' . $slot_date,
+                ), true);
+
+                if (is_wp_error($booking_id)) {
+                    continue;
                 }
 
-                $signature = $item->get_meta('_ttn_booking_signature');
-                $terms_accepted_at = $item->get_meta('_ttn_booking_terms_accepted_at');
-                if ($signature) {
-                    update_post_meta($booking_id, 'ttn_booking_signature_file', $signature);
-                }
-                if ($terms_accepted_at) {
-                    update_post_meta($booking_id, 'ttn_booking_terms_accepted_at', $terms_accepted_at);
-                }
-
-                // Only now that payment is confirmed do we mark this user as "verified on file".
-                if ($user_id && $signature && $terms_accepted_at) {
-                    update_user_meta($user_id, 'ttn_user_signature_file', $signature);
-                    update_user_meta($user_id, 'ttn_user_terms_accepted_at', $terms_accepted_at);
-                }
-
-                $created_booking = true;
-                $confirmed_reservations[] = array(
-                    'booking_id' => $booking_id,
+                ttn_save_booking_metadata($booking_id, array(
+                    'name' => $customer_name,
+                    'phone' => $customer_phone,
+                    'email' => $customer_email,
                     'bay' => $bay,
-                    'date' => $date,
-                    'time' => $time,
-                    'end_time' => ttn_booking_get_end_time_label($time_slots, $start_index, $duration),
+                    'date' => $slot_date,
+                    'time' => $slot['label'],
                     'duration' => $duration,
                     'players' => $players,
-                    'total_price' => $total_price,
-                    'amount_paid' => $charge['paid'],
-                    'discount' => $charge['discount'],
-                    'coupons' => $charge['coupons'],
+                    'club_preference' => $club_preference,
                     'member_free_hours' => $member_free_hours,
-                );
+                    'guest_charge' => $member_guest_charge,
+                    'member_booking' => function_exists('golf_simulator_theme_get_user_membership_record') && $user_id && ($membership = golf_simulator_theme_get_user_membership_record($user_id)) && $membership->status === 'active' ? '1' : '0',
+                    'total_price' => $total_price,
+                    'payment_status' => 'Paid',
+                    'parent_id' => $index > 0 ? $parent_booking_id : null,
+                    'user_id' => $user_id,
+                    'status' => 'confirmed',
+                    'updated_at' => current_time('mysql'),
+                ));
+
+                if ($index === 0) {
+                    $parent_booking_id = $booking_id;
+                    update_post_meta($booking_id, 'ttn_booking_order_id', $order->get_id());
+                    update_post_meta($booking_id, 'ttn_booking_amount_paid', $charge['paid']);
+                    update_post_meta($booking_id, 'ttn_booking_discount', $charge['discount']);
+                    update_post_meta($booking_id, 'ttn_booking_coupon_codes', $charge['coupons']);
+                    if ($charge['discount'] > 0) {
+                        $order->add_order_note(sprintf(
+                            'Booking %s: list price $%s, discount $%s (%s), charged $%s.',
+                            'TTN-' . str_pad((string) $booking_id, 6, '0', STR_PAD_LEFT),
+                            number_format($total_price, 2),
+                            number_format($charge['discount'], 2),
+                            $charge['coupons'] ? implode(', ', $charge['coupons']) : 'discount',
+                            number_format($charge['paid'], 2)
+                        ));
+                    }
+
+                    $signature = $item->get_meta('_ttn_booking_signature');
+                    $terms_accepted_at = $item->get_meta('_ttn_booking_terms_accepted_at');
+                    if ($signature) {
+                        update_post_meta($booking_id, 'ttn_booking_signature_file', $signature);
+                    }
+                    if ($terms_accepted_at) {
+                        update_post_meta($booking_id, 'ttn_booking_terms_accepted_at', $terms_accepted_at);
+                    }
+
+                    // Only now that payment is confirmed do we mark this user as "verified on file".
+                    if ($user_id && $signature && $terms_accepted_at) {
+                        update_user_meta($user_id, 'ttn_user_signature_file', $signature);
+                        update_user_meta($user_id, 'ttn_user_terms_accepted_at', $terms_accepted_at);
+                    }
+
+                    $created_booking = true;
+                    $confirmed_reservations[] = array(
+                        'booking_id' => $booking_id,
+                        'bay' => $bay,
+                        'date' => $date,
+                        'time' => $time,
+                        'end_time' => ttn_booking_get_end_time_label($time_slots, $start_index, $duration),
+                        'duration' => $duration,
+                        'players' => $players,
+                        'total_price' => $total_price,
+                        'amount_paid' => $charge['paid'],
+                        'discount' => $charge['discount'],
+                        'coupons' => $charge['coupons'],
+                        'member_free_hours' => $member_free_hours,
+                    );
+                }
             }
+        } finally {
+            ttn_booking_release_slot_execution_lock($exec_lock_key);
         }
     }
 
@@ -2081,6 +2279,7 @@ function ttn_booking_process_wc_order($order_id) {
 add_action('woocommerce_order_status_completed', 'ttn_booking_process_wc_order');
 add_action('woocommerce_order_status_processing', 'ttn_booking_process_wc_order');
 add_action('woocommerce_payment_complete', 'ttn_booking_process_wc_order');
+add_action('ttn_booking_retry_wc_order', 'ttn_booking_process_wc_order');
 
 function ttn_booking_process_extension_wc_order($order_id) {
     if (!function_exists('wc_get_order')) {
@@ -2168,6 +2367,48 @@ add_action('woocommerce_order_status_processing', 'ttn_booking_process_extension
 add_action('woocommerce_payment_complete', 'ttn_booking_process_extension_wc_order');
 add_action('ttn_booking_retry_extension_order', 'ttn_booking_process_extension_wc_order');
 
+function ttn_booking_validate_cart_checkout($checkout_data, $errors) {
+    if (!function_exists('WC') || !WC()->cart) {
+        return;
+    }
+
+    foreach (WC()->cart->get_cart() as $cart_item) {
+        $booking = $cart_item['ttn_booking'] ?? array();
+        if (empty($booking['bay']) || empty($booking['date']) || empty($booking['time'])) {
+            continue;
+        }
+
+        $bay = $booking['bay'];
+        $date = $booking['date'];
+        $time = $booking['time'];
+        $duration = max(1, min(8, intval($booking['duration'] ?? 1)));
+        $member_overnight = !empty($booking['member_overnight']);
+
+        $time_slots = $member_overnight ? ttn_booking_get_all_time_slots() : ttn_booking_get_public_time_slots();
+        $slot_index = array_search($time, array_column($time_slots, 'label'), true);
+        if ($slot_index === false || ttn_booking_is_slot_in_past($date, $time_slots[$slot_index]['start'])) {
+            $errors->add('ttn_slot_past', __('That tee time has already passed. Please select another time.', 'tee-time-nexus-bookings'));
+            return;
+        }
+
+        $bookings = ttn_booking_get_booking_records();
+        if (!ttn_booking_check_availability_for_duration($bay, $date, $time, $duration, $time_slots, $bookings)) {
+            $user_id = get_current_user_id();
+            $alts = ttn_booking_find_alternative_slots($bay, $date, $time, $duration, $user_id);
+            $alt_msg = ttn_booking_format_alternatives_message($alts);
+            $base_msg = __('Someone was just a bit quicker than you to book this tee time.', 'tee-time-nexus-bookings');
+            $full_msg = $alt_msg ? ($base_msg . ' ' . $alt_msg) : ($base_msg . ' ' . __('Please choose another date or time.', 'tee-time-nexus-bookings'));
+            $errors->add('ttn_slot_unavailable', $full_msg);
+            return;
+        }
+
+
+    }
+}
+add_action('woocommerce_after_checkout_validation', 'ttn_booking_validate_cart_checkout', 10, 2);
+
+
+
 function ttn_booking_validate_reschedule_checkout($checkout_data, $errors) {
     if (!function_exists('WC') || !WC()->cart) {
         return;
@@ -2201,6 +2442,15 @@ function ttn_booking_extension_return_url($return_url, $order) {
             foreach ($order->get_items() as $item) {
                 if (!$item->get_meta('ttn_booking_bay')) {
                     continue;
+                }
+
+                if ($order->get_meta('_ttn_booking_failed')) {
+                    $fail_args = array('booking_failed' => '1');
+                    $alt_msg = (string) $order->get_meta('_ttn_booking_alternatives_message');
+                    if ($alt_msg) {
+                        $fail_args['alt_msg'] = rawurlencode($alt_msg);
+                    }
+                    return add_query_arg($fail_args, home_url('/book-a-bay/'));
                 }
 
                 $booking_ids = get_posts(array(
@@ -2251,9 +2501,14 @@ function ttn_booking_shortcode() {
         'invalid-selection' => __('Your bay, date, or time selection was invalid or expired. Please choose your options again.', 'tee-time-nexus-bookings'),
         'terms-required' => __('Please check the box to agree to the Terms and Conditions before continuing.', 'tee-time-nexus-bookings'),
         'signature-required' => __('Please sign in the signature box to confirm your reservation before continuing.', 'tee-time-nexus-bookings'),
+        'slot-held' => __('This tee time is currently being reserved by another customer. Please choose another time.', 'tee-time-nexus-bookings'),
     );
     $booking_error_message = '';
-    if ($booking_error_code) {
+    if (isset($_GET['booking_failed'])) {
+        $alt_hint = !empty($_GET['alt_msg']) ? sanitize_text_field(rawurldecode(wp_unslash($_GET['alt_msg']))) : '';
+        $base_failed = __('Someone was just a bit quicker than you to book this tee time. If your payment was processed, a full refund has been automatically issued.', 'tee-time-nexus-bookings');
+        $booking_error_message = $alt_hint ? ($base_failed . ' ' . $alt_hint) : ($base_failed . ' ' . __('Please choose another date or time.', 'tee-time-nexus-bookings'));
+    } elseif ($booking_error_code) {
         $booking_error_message = isset($_GET['booking_error_message'])
             ? sanitize_text_field(rawurldecode(wp_unslash($_GET['booking_error_message'])))
             : '';
