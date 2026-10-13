@@ -2156,12 +2156,12 @@ img {
 
 .membership-card-art {
     position: relative;
-    min-height: 174px;
+    min-height: 210px;
     padding: 20px 24px 18px;
-    background-position: center;
+    background-position: center 20%;
     background-repeat: no-repeat;
-    background-color: rgba(2, 13, 13, .96);
-    background-size: cover, contain;
+    background-color: #0b1d1f;
+    background-size: cover;
 }
 
 .membership-card-art .tier-badge {
@@ -2176,6 +2176,7 @@ img {
     color: #fff;
     font-size: clamp(1.55rem, 2.1vw, 2rem);
     letter-spacing: 0;
+    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9), 0 1px 3px rgba(0, 0, 0, 0.9);
 }
 
 .membership-popular {

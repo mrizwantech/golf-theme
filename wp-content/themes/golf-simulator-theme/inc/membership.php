@@ -1713,9 +1713,10 @@ function golf_simulator_theme_render_membership_packages() {
         $data = golf_simulator_theme_get_membership_package_data($package->ID);
         $thumbnail_id = absint(get_post_meta($package->ID, '_membership_thumbnail_id', true)) ?: absint($data['thumbnail_id']);
         $card_image = $thumbnail_id ? wp_get_attachment_image_url($thumbnail_id, 'large') : '';
-        $card_background = 'linear-gradient(90deg, rgba(2, 13, 13, .94) 0%, rgba(2, 13, 13, .45) 72%, rgba(2, 13, 13, .1) 100%)';
         if ($card_image) {
-            $card_background .= ', url("' . esc_url_raw($card_image) . '")';
+            $card_background = 'linear-gradient(180deg, rgba(0, 0, 0, 0.4) 0%, rgba(0, 0, 0, 0) 45%), url("' . esc_url_raw($card_image) . '")';
+        } else {
+            $card_background = 'linear-gradient(135deg, rgba(3, 20, 20, 0.95) 0%, rgba(2, 13, 13, 0.85) 100%)';
         }
         $title_key = strtolower($data['title']);
         $button_label = sprintf("LET'S %s", strtoupper($data['title']));
