@@ -25,7 +25,11 @@
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M23 7.1a3 3 0 0 0-2.1-2.1C19 4.5 12 4.5 12 4.5s-7 0-8.9.5A3 3 0 0 0 1 7.1 31 31 0 0 0 .5 12a31 31 0 0 0 .5 4.9 3 3 0 0 0 2.1 2.1c1.9.5 8.9.5 8.9.5s7 0 8.9-.5a3 3 0 0 0 2.1-2.1 31 31 0 0 0 .5-4.9 31 31 0 0 0-.5-4.9ZM9.8 15.2V8.8l5.5 3.2-5.5 3.2Z"/></svg>
             </a>
         </nav>
-        <div>© <?php echo esc_html(date('Y')); ?> Tee Time Nexus. All rights reserved.</div>
+        <div class="footer-legal">
+            <span>&copy; <?php echo esc_html(date('Y')); ?> Tee Time Nexus. All rights reserved.</span>
+            <span class="footer-legal-separator" aria-hidden="true">&bull;</span>
+            <a href="<?php echo esc_url(function_exists('get_privacy_policy_url') && get_privacy_policy_url() ? get_privacy_policy_url() : home_url('/privacy-policy/')); ?>" class="footer-privacy-link">Privacy Policy</a>
+        </div>
     </div>
 </footer>
 <?php wp_footer(); ?>

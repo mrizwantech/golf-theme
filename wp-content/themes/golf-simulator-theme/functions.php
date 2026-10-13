@@ -309,6 +309,39 @@ function golf_simulator_theme_ensure_contact_page() {
 }
 add_action('init', 'golf_simulator_theme_ensure_contact_page', 20);
 
+function golf_simulator_theme_ensure_privacy_policy_page() {
+    $page = get_page_by_path('privacy-policy');
+    if (!$page) {
+        $existing_privacy_id = (int) get_option('wp_page_for_privacy_policy');
+        if ($existing_privacy_id) {
+            $page = get_post($existing_privacy_id);
+        }
+    }
+    if (!$page) {
+        $page_id = wp_insert_post(array(
+            'post_title' => 'Privacy Policy',
+            'post_name' => 'privacy-policy',
+            'post_status' => 'publish',
+            'post_type' => 'page',
+            'post_content' => '',
+        ));
+        if (is_wp_error($page_id) || !$page_id) {
+            return;
+        }
+        $page = get_post($page_id);
+    }
+
+    if ($page) {
+        if (get_post_meta($page->ID, '_wp_page_template', true) !== 'page-privacy-policy.php') {
+            update_post_meta($page->ID, '_wp_page_template', 'page-privacy-policy.php');
+        }
+        if ((int) get_option('wp_page_for_privacy_policy') !== $page->ID) {
+            update_option('wp_page_for_privacy_policy', $page->ID);
+        }
+    }
+}
+add_action('init', 'golf_simulator_theme_ensure_privacy_policy_page', 20);
+
 function golf_simulator_theme_handle_contact_form() {
     $redirect_url = home_url('/contact/');
     $nonce = sanitize_text_field(wp_unslash($_POST['contact_nonce'] ?? ''));
@@ -377,6 +410,7 @@ function golf_simulator_theme_get_seo_description() {
                 'contact' => 'Contact Tee Time Nexus in Mooresville, NC about bookings, memberships, or visiting. Call, email, or send our team a message.',
                 'book-a-bay' => 'Book an indoor golf simulator bay at Tee Time Nexus in Mooresville, NC. Choose your bay, date, duration, and available tee time.',
                 'membership' => 'Explore Tee Time Nexus memberships for indoor golf in Mooresville, NC, including member access, daily playing hours, and simulator benefits.',
+                'privacy-policy' => 'Read the Tee Time Nexus Privacy Policy. Learn how we collect, protect, and manage your personal data, reservations, memberships, and facility access in Mooresville, NC.',
             );
             if (isset($page_descriptions[$post->post_name])) {
                 return $page_descriptions[$post->post_name];
@@ -412,6 +446,7 @@ function golf_simulator_theme_get_seo_title() {
             'contact' => 'Contact Tee Time Nexus | ' . $site_name,
             'book-a-bay' => 'Book an Indoor Golf Simulator | ' . $site_name,
             'membership' => 'Indoor Golf Memberships | ' . $site_name,
+            'privacy-policy' => 'Privacy Policy | ' . $site_name,
         );
         if ($post && isset($page_titles[$post->post_name])) {
             return $page_titles[$post->post_name];

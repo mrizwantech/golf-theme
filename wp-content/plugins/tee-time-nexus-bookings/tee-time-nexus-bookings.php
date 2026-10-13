@@ -11,6 +11,7 @@ if (!defined('ABSPATH')) {
 }
 
 require_once __DIR__ . '/inc/class-ttn-jwt-auth.php';
+require_once __DIR__ . '/inc/class-ttn-passkey-auth.php';
 require_once __DIR__ . '/inc/class-ttn-mobile-booking-api.php';
 require_once __DIR__ . '/inc/class-ttn-mobile-checkout-bridge.php';
 require_once __DIR__ . '/inc/class-ttn-kisi-connection.php';

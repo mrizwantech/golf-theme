@@ -10,11 +10,15 @@ wp-content/wp-cache-config.php
 wp-content/plugins/*
 wp-content/uploads/
 
-# Ignore plugin files except the new first-party competitions plugin
+# Ignore plugin files except first-party plugins
 wp-content/plugins/*
 !wp-content/plugins/tee-time-nexus-competitions/
 !wp-content/plugins/tee-time-nexus-competitions/**
 wp-content/plugins/tee-time-nexus-competitions/**/.DS_Store
+!wp-content/plugins/tee-time-nexus-bookings/
+!wp-content/plugins/tee-time-nexus-bookings/**
+wp-content/plugins/tee-time-nexus-bookings/vendor/
+wp-content/plugins/tee-time-nexus-bookings/**/.DS_Store
 
 # Ignore all themes except the custom one
 wp-content/themes/*

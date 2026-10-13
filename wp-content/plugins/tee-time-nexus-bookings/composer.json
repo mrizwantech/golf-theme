@@ -1,0 +1,11 @@
+{
+    "name": "teetimenexus/bookings",
+    "description": "Tee Time Nexus booking authentication dependencies",
+    "type": "wordpress-plugin",
+    "require": {
+        "lbuchs/webauthn": "2.2.0"
+    },
+    "config": {
+        "allow-plugins": false
+    }
+}
