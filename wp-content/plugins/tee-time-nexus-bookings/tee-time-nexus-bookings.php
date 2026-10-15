@@ -70,6 +70,136 @@ function ttn_booking_get_account_login_url() {
     return wp_login_url($account_url);
 }
 
+function ttn_booking_user_can_make_reservations($user_id = null) {
+    if (get_option('ttn_booking_test_mode', '1') !== '1') {
+        return true;
+    }
+
+    if (current_user_can('manage_woocommerce')) {
+        return true;
+    }
+
+    $user_id = null === $user_id ? get_current_user_id() : absint($user_id);
+    $user = $user_id ? get_userdata($user_id) : false;
+    if (!$user) {
+        return false;
+    }
+
+    $allowed_user_ids = get_option('ttn_booking_testers', array());
+    if (!is_array($allowed_user_ids)) {
+        return false;
+    }
+
+    foreach ($allowed_user_ids as $allowed_user_id) {
+        if ((int) $allowed_user_id === (int) $user->ID) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function ttn_booking_sanitize_test_emails($value) {
+    $emails = preg_split('/[\r\n,;]+/', (string) $value);
+    $allowed_user_ids = array();
+
+    foreach ($emails as $raw_email) {
+        $raw_email = trim($raw_email);
+        $email = strtolower(sanitize_email($raw_email));
+        if ($email && is_email($email)) {
+            $user = get_user_by('email', $email);
+            if ($user) {
+                $allowed_user_ids[] = (int) $user->ID;
+            } else {
+                add_settings_error(
+                    'ttn_booking_testers',
+                    'unknown_test_email',
+                    sprintf(
+                        /* translators: %s: tester email address */
+                        __('No existing WordPress account was found for %s; that address was ignored.', 'tee-time-nexus-bookings'),
+                        $email
+                    )
+                );
+            }
+        } elseif ($raw_email !== '') {
+            add_settings_error(
+                'ttn_booking_testers',
+                'invalid_test_email',
+                __('One or more tester email addresses were invalid and have been ignored.', 'tee-time-nexus-bookings')
+            );
+        }
+    }
+
+    return array_values(array_unique($allowed_user_ids));
+}
+
+function ttn_booking_register_access_settings() {
+    add_filter('option_page_capability_ttn_booking_access', static function () {
+        return 'manage_woocommerce';
+    });
+
+    register_setting('ttn_booking_access', 'ttn_booking_test_mode', array(
+        'type' => 'string',
+        'sanitize_callback' => static function ($value) {
+            return '1' === $value ? '1' : '0';
+        },
+        'default' => '1',
+    ));
+    register_setting('ttn_booking_access', 'ttn_booking_testers', array(
+        'type' => 'array',
+        'sanitize_callback' => 'ttn_booking_sanitize_test_emails',
+        'default' => array(),
+    ));
+
+    add_settings_section(
+        'ttn_booking_access_section',
+        __('Booking access', 'tee-time-nexus-bookings'),
+        static function () {
+            echo '<p>' . esc_html__('When test mode is enabled, only store managers and signed-in users whose email addresses are listed below can start a booking. The restriction also applies to checkout and the mobile booking API.', 'tee-time-nexus-bookings') . '</p>';
+        },
+        'ttn-booking-access'
+    );
+
+    add_settings_field(
+        'ttn_booking_test_mode',
+        __('Testing mode', 'tee-time-nexus-bookings'),
+        static function () {
+            $enabled = get_option('ttn_booking_test_mode', '1') === '1';
+            ?>
+            <select name="ttn_booking_test_mode" id="ttn_booking_test_mode">
+                <option value="0" <?php selected($enabled, false); ?>><?php esc_html_e('Off - bookings open to everyone', 'tee-time-nexus-bookings'); ?></option>
+                <option value="1" <?php selected($enabled, true); ?>><?php esc_html_e('On - allow listed testers only', 'tee-time-nexus-bookings'); ?></option>
+            </select>
+            <?php
+        },
+        'ttn-booking-access',
+        'ttn_booking_access_section'
+    );
+
+    add_settings_field(
+        'ttn_booking_testers',
+        __('Tester email addresses', 'tee-time-nexus-bookings'),
+        static function () {
+            $user_ids = get_option('ttn_booking_testers', array());
+            $user_ids = is_array($user_ids) ? $user_ids : array();
+            $emails = array();
+            foreach ($user_ids as $user_id) {
+                $user = get_userdata($user_id);
+                if ($user) {
+                    $emails[] = $user->user_email;
+                }
+            }
+            ?>
+            <textarea name="ttn_booking_testers" id="ttn_booking_testers" rows="8" cols="50" class="large-text code"><?php echo esc_textarea(implode("\n", $emails)); ?></textarea>
+            <p class="description"><?php esc_html_e('Enter one email per line for an existing WordPress user account. Testers must sign in with that account.', 'tee-time-nexus-bookings'); ?></p>
+            <?php
+        },
+        'ttn-booking-access',
+        'ttn_booking_access_section'
+    );
+}
+add_action('admin_init', 'ttn_booking_register_access_settings');
+
 function ttn_booking_get_account_management_cta($customer_email = '', $user_id = 0) {
     // Only treat as "their own account" if the logged-in user's email actually matches
     // the booking's customer email. Passing get_current_user_id() blindly (e.g. from an
@@ -1893,6 +2023,14 @@ function ttn_booking_order_page_text($translation, $text, $domain) {
 add_filter('gettext', 'ttn_booking_order_page_text', 10, 3);
 
 function ttn_booking_start_woocommerce_checkout() {
+    if (!ttn_booking_user_can_make_reservations()) {
+        wp_die(
+            esc_html__('Booking is currently limited to approved testers. Please sign in with an approved account.', 'tee-time-nexus-bookings'),
+            esc_html__('Bookings unavailable', 'tee-time-nexus-bookings'),
+            array('response' => 403)
+        );
+    }
+
     $nonce = sanitize_text_field(wp_unslash($_REQUEST['ttn_booking_checkout_nonce'] ?? ''));
     if (!wp_verify_nonce($nonce, 'ttn_booking_start_checkout')) {
         wp_die(__('Security check failed. Please try again.', 'tee-time-nexus-bookings'));
@@ -2378,6 +2516,11 @@ function ttn_booking_validate_cart_checkout($checkout_data, $errors) {
             continue;
         }
 
+        if (!ttn_booking_user_can_make_reservations()) {
+            $errors->add('ttn_booking_test_mode', __('Booking is currently limited to approved testers. Please sign in with an approved account.', 'tee-time-nexus-bookings'));
+            return;
+        }
+
         $bay = $booking['bay'];
         $date = $booking['date'];
         $time = $booking['time'];
@@ -2478,6 +2621,15 @@ function ttn_booking_extension_return_url($return_url, $order) {
 add_filter('woocommerce_get_return_url', 'ttn_booking_extension_return_url', 15, 2);
 
 function ttn_booking_shortcode() {
+    if (!ttn_booking_user_can_make_reservations()) {
+        $login_url = ttn_booking_get_account_login_url();
+        return '<div class="booking-card">'
+            . '<h2>' . esc_html__('Bookings are not open yet', 'tee-time-nexus-bookings') . '</h2>'
+            . '<p>' . esc_html__('Booking is currently limited to approved testers. Please sign in with an approved account.', 'tee-time-nexus-bookings') . '</p>'
+            . '<p><a class="btn btn-primary" href="' . esc_url($login_url) . '">' . esc_html__('Sign in', 'tee-time-nexus-bookings') . '</a></p>'
+            . '</div>';
+    }
+
     $current_user_id = get_current_user_id();
     $member_package_name = ttn_booking_get_paid_membership_package_name($current_user_id);
     $is_paid_member = (bool) $member_package_name;
@@ -3388,6 +3540,14 @@ function ttn_booking_shortcode() {
 add_shortcode('ttn_booking_form', 'ttn_booking_shortcode');
 
 function ttn_booking_submit() {
+    if (!ttn_booking_user_can_make_reservations()) {
+        wp_die(
+            esc_html__('Booking is currently limited to approved testers. Please sign in with an approved account.', 'tee-time-nexus-bookings'),
+            esc_html__('Bookings unavailable', 'tee-time-nexus-bookings'),
+            array('response' => 403)
+        );
+    }
+
     if (!isset($_POST['ttn_booking_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['ttn_booking_nonce'])), 'ttn_booking_submit')) {
         wp_die(__('Security check failed.', 'tee-time-nexus-bookings'));
     }
@@ -3552,6 +3712,15 @@ function ttn_add_admin_menu() {
 
     add_submenu_page(
         'ttn-bookings-dashboard',
+        'Booking Access',
+        'Booking Access',
+        'manage_woocommerce',
+        'ttn-booking-access',
+        'ttn_booking_access_admin_page'
+    );
+
+    add_submenu_page(
+        'ttn-bookings-dashboard',
         'Cancellation Feedback',
         'Cancellation Feedback',
         'manage_woocommerce',
@@ -3568,6 +3737,25 @@ function ttn_add_admin_menu() {
     );
 }
 add_action('admin_menu', 'ttn_add_admin_menu');
+
+function ttn_booking_access_admin_page() {
+    if (!current_user_can('manage_woocommerce')) {
+        wp_die(esc_html__('You do not have permission to manage booking access.', 'tee-time-nexus-bookings'));
+    }
+    ?>
+    <div class="wrap">
+        <h1><?php esc_html_e('Booking Access', 'tee-time-nexus-bookings'); ?></h1>
+        <?php settings_errors(); ?>
+        <form action="options.php" method="post">
+            <?php
+            settings_fields('ttn_booking_access');
+            do_settings_sections('ttn-booking-access');
+            submit_button();
+            ?>
+        </form>
+    </div>
+    <?php
+}
 
 function ttn_render_booking_dashboard() {
     if (!ttn_booking_can_manage()) {

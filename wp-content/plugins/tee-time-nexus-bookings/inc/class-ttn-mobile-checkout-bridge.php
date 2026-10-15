@@ -99,6 +99,10 @@ function ttn_mobile_route_start_checkout(WP_REST_Request $request) {
         return new WP_Error('ttn_not_authenticated', 'You must be logged in.', array('status' => 401));
     }
 
+    if (!ttn_booking_user_can_make_reservations($user->ID)) {
+        return new WP_Error('ttn_booking_test_mode', 'Booking is currently limited to approved testers.', array('status' => 403));
+    }
+
     $bay = sanitize_text_field($request->get_param('bay'));
     $date = sanitize_text_field($request->get_param('date'));
     $time = sanitize_text_field($request->get_param('time'));
