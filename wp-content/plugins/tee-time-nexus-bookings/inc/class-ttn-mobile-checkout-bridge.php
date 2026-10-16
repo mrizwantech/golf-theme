@@ -177,6 +177,9 @@ function ttn_mobile_handle_checkout_bridge() {
             wp_die(is_wp_error($data) ? esc_html($data->get_error_message()) : 'The price or availability changed. Return to the app and review your reservation.');
         }
     }
+    if (function_exists('golf_simulator_theme_mark_app_checkout')) {
+        golf_simulator_theme_mark_app_checkout();
+    }
     wp_set_current_user($user_id);
     wp_set_auth_cookie($user_id, true);
 
@@ -219,10 +222,20 @@ function ttn_mobile_handle_checkout_bridge() {
         if (!$checkout_url) {
             wp_die('Unable to start payment. Your reservation has not changed. Please return to the app and try again.');
         }
+        if (function_exists('golf_simulator_theme_app_checkout_url')) {
+            $checkout_url = golf_simulator_theme_app_checkout_url($checkout_url);
+        } else {
+            $checkout_url = add_query_arg('ttn_app_checkout', '1', $checkout_url);
+        }
         wp_safe_redirect($checkout_url);
         exit;
     }
     $checkout_url = function_exists('wc_get_checkout_url') ? wc_get_checkout_url() : home_url('/');
+    if (function_exists('golf_simulator_theme_app_checkout_url')) {
+        $checkout_url = golf_simulator_theme_app_checkout_url($checkout_url);
+    } else {
+        $checkout_url = add_query_arg('ttn_app_checkout', '1', $checkout_url);
+    }
     wp_safe_redirect($checkout_url);
     exit;
 }

@@ -280,7 +280,7 @@ try {
     ttn_mobile_handle_checkout_bridge();
     throw new RuntimeException('Checkout must redirect.');
 } catch (TestRedirect $redirect) {
-    check($redirect->getMessage() === 'https://example.test/checkout/', 'Bridge opens existing secure checkout.');
+    check($redirect->getMessage() === 'https://example.test/checkout/?ttn_app_checkout=1', 'App bridge opens secure checkout with its explicit app marker.');
 }
 check(count($GLOBALS['wc']->cart->items) === 1 && isset($GLOBALS['wc']->cart->items[0]['ttn_booking_extension']), 'Reschedule bridge populates an extension cart, not a new booking cart.');
 check($GLOBALS['wc']->cart->items[0]['ttn_booking_extension']['quote_id'] === $quote['quote_id'], 'Reviewed server price survives the checkout handoff.');

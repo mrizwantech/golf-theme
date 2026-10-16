@@ -11,11 +11,27 @@ if ($start === false) {
 }
 $mobile = substr($css, $start);
 
+$app_menu_rule = '.ttn-app-checkout .header-menu-toggle';
+$app_menu_position = strpos($css, $app_menu_rule);
+$mobile_rules_position = strpos($css, '/* On phones, show the line total once');
+if ($app_menu_position === false || $app_menu_position > $mobile_rules_position
+    || !preg_match('/\.ttn-app-checkout \.header-menu-toggle\s*\{\s*display:\s*none\s*!important;\s*\}/', $css)) {
+    throw new RuntimeException('Hide the menu on app checkout at every viewport size.');
+}
+
+$theme_functions = file_get_contents(__DIR__ . '/../functions.php');
+if (strpos($theme_functions, "isset(\$_GET['ttn_app_checkout'])") === false
+    || strpos($theme_functions, "add_query_arg('ttn_app_checkout', '1', \$url)") === false) {
+    throw new RuntimeException('Identify app checkout from its explicit URL marker, not viewport size.');
+}
+
 $required = array(
     '@media (max-width: 700px)',
     '.wp-block-woocommerce-checkout .wc-block-components-order-summary-item',
     'grid-template-columns: 48px minmax(0, 1fr)',
+    'max-width: 100%',
     'overflow-wrap: anywhere',
+    'justify-self: start',
     'font-size: 1rem',
 );
 foreach ($required as $rule) {

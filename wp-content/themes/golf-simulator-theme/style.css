@@ -4686,23 +4686,34 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     color: #1a1a1a !important;
 }
 
+.ttn-app-checkout .header-menu-toggle {
+    display: none !important;
+}
+
 /* On phones, show the line total once and let item details wrap within checkout. */
 @media (max-width: 700px) {
     .wp-block-woocommerce-checkout .wc-block-components-order-summary-item {
         display: grid;
         grid-template-columns: 48px minmax(0, 1fr);
         gap: 8px 16px;
+        width: 100%;
+        max-width: 100%;
         min-width: 0;
+        box-sizing: border-box;
     }
 
     .wp-block-woocommerce-checkout .wc-block-components-order-summary-item__image {
         grid-row: 1 / span 2;
+        max-width: 48px;
     }
 
     .wp-block-woocommerce-checkout .wc-block-components-order-summary-item__description {
+        width: 100%;
+        max-width: 100%;
         min-width: 0;
         padding: 0;
         overflow-wrap: anywhere;
+        box-sizing: border-box;
     }
 
     .wp-block-woocommerce-checkout .wc-block-components-order-summary-item__description .wc-block-cart-item__prices {
@@ -4711,9 +4722,14 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 
     .wp-block-woocommerce-checkout .wc-block-components-order-summary-item__total-price {
         grid-column: 2;
+        justify-self: start;
+        width: 100%;
+        max-width: 100%;
         min-width: 0;
         padding: 0;
         text-align: left;
+        overflow-wrap: anywhere;
+        box-sizing: border-box;
     }
 
     .wp-block-woocommerce-checkout .wc-block-cart-item__total-price-and-sale-badge-wrapper {
@@ -4725,5 +4741,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     .wp-block-woocommerce-checkout .wc-block-components-order-summary-item .price {
         font-size: 1rem;
         line-height: 1.5;
+        white-space: normal;
+        overflow-wrap: anywhere;
     }
 }
