@@ -85,13 +85,24 @@ function ttn_booking_user_can_make_reservations($user_id = null) {
         return false;
     }
 
-    $allowed_user_ids = get_option('ttn_booking_testers', array());
-    if (!is_array($allowed_user_ids)) {
+    $allowed_testers = get_option('ttn_booking_testers', '');
+    if (is_array($allowed_testers)) {
+        // Migrate compatibility for lists saved by earlier versions as user IDs/emails.
+        $allowed_testers = array_map(static function ($tester) {
+            if (is_numeric($tester)) {
+                $user = get_userdata($tester);
+                return $user ? $user->user_email : '';
+            }
+            return (string) $tester;
+        }, $allowed_testers);
+    } elseif (is_string($allowed_testers)) {
+        $allowed_testers = preg_split('/[\r\n,;]+/', $allowed_testers);
+    } else {
         return false;
     }
 
-    foreach ($allowed_user_ids as $allowed_user_id) {
-        if ((int) $allowed_user_id === (int) $user->ID) {
+    foreach ($allowed_testers as $allowed_email) {
+        if (is_string($allowed_email) && strcasecmp(trim($allowed_email), $user->user_email) === 0) {
             return true;
         }
     }
@@ -101,26 +112,13 @@ function ttn_booking_user_can_make_reservations($user_id = null) {
 
 function ttn_booking_sanitize_test_emails($value) {
     $emails = preg_split('/[\r\n,;]+/', (string) $value);
-    $allowed_user_ids = array();
+    $allowed_emails = array();
 
     foreach ($emails as $raw_email) {
         $raw_email = trim($raw_email);
         $email = strtolower(sanitize_email($raw_email));
         if ($email && is_email($email)) {
-            $user = get_user_by('email', $email);
-            if ($user) {
-                $allowed_user_ids[] = (int) $user->ID;
-            } else {
-                add_settings_error(
-                    'ttn_booking_testers',
-                    'unknown_test_email',
-                    sprintf(
-                        /* translators: %s: tester email address */
-                        __('No existing WordPress account was found for %s; that address was ignored.', 'tee-time-nexus-bookings'),
-                        $email
-                    )
-                );
-            }
+            $allowed_emails[] = $email;
         } elseif ($raw_email !== '') {
             add_settings_error(
                 'ttn_booking_testers',
@@ -130,7 +128,7 @@ function ttn_booking_sanitize_test_emails($value) {
         }
     }
 
-    return array_values(array_unique($allowed_user_ids));
+    return implode("\n", array_values(array_unique($allowed_emails)));
 }
 
 function ttn_booking_register_access_settings() {
@@ -146,9 +144,9 @@ function ttn_booking_register_access_settings() {
         'default' => '1',
     ));
     register_setting('ttn_booking_access', 'ttn_booking_testers', array(
-        'type' => 'array',
+        'type' => 'string',
         'sanitize_callback' => 'ttn_booking_sanitize_test_emails',
-        'default' => array(),
+        'default' => '',
     ));
 
     add_settings_section(
@@ -180,18 +178,24 @@ function ttn_booking_register_access_settings() {
         'ttn_booking_testers',
         __('Tester email addresses', 'tee-time-nexus-bookings'),
         static function () {
-            $user_ids = get_option('ttn_booking_testers', array());
-            $user_ids = is_array($user_ids) ? $user_ids : array();
-            $emails = array();
-            foreach ($user_ids as $user_id) {
-                $user = get_userdata($user_id);
-                if ($user) {
-                    $emails[] = $user->user_email;
+            $testers = get_option('ttn_booking_testers', '');
+            if (is_array($testers)) {
+                $emails = array();
+                foreach ($testers as $tester) {
+                    if (is_numeric($tester)) {
+                        $user = get_userdata($tester);
+                        if ($user) {
+                            $emails[] = $user->user_email;
+                        }
+                    } elseif (is_string($tester)) {
+                        $emails[] = $tester;
+                    }
                 }
+                $testers = implode("\n", $emails);
             }
             ?>
-            <textarea name="ttn_booking_testers" id="ttn_booking_testers" rows="8" cols="50" class="large-text code"><?php echo esc_textarea(implode("\n", $emails)); ?></textarea>
-            <p class="description"><?php esc_html_e('Enter one email per line for an existing WordPress user account. Testers must sign in with that account.', 'tee-time-nexus-bookings'); ?></p>
+            <textarea name="ttn_booking_testers" id="ttn_booking_testers" rows="8" cols="50" class="large-text code"><?php echo esc_textarea((string) $testers); ?></textarea>
+            <p class="description"><?php esc_html_e('Enter tester email addresses separated by commas or new lines. An account does not need to exist yet; testers must create an account with the listed email and sign in before booking.', 'tee-time-nexus-bookings'); ?></p>
             <?php
         },
         'ttn-booking-access',
