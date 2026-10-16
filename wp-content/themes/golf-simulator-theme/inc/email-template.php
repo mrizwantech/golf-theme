@@ -69,6 +69,13 @@ add_filter('wp_mail_from', 'golf_simulator_theme_mail_from');
 // wraps it in the same branded template so every email we send looks consistent.
 function golf_simulator_theme_brand_plain_emails($args) {
     $message = (string) ($args['message'] ?? '');
+    $subject = (string) ($args['subject'] ?? 'Tee Time Nexus');
+    $site_name = trim((string) get_option('blogname'));
+    if ($site_name !== '') {
+        $subject = preg_replace('/^\s*\[' . preg_quote($site_name, '/') . '\]\s*/i', '', $subject, 1);
+    }
+    $args['subject'] = $subject;
+
     $headers = $args['headers'] ?? array();
     $headers_string = is_array($headers) ? implode("\n", $headers) : (string) $headers;
 
@@ -77,7 +84,6 @@ function golf_simulator_theme_brand_plain_emails($args) {
         return $args;
     }
 
-    $subject = (string) ($args['subject'] ?? 'Tee Time Nexus');
     $body_html = '<div style="color:#4b5563;font-size:15px;line-height:1.7;">' . nl2br(esc_html($message)) . '</div>';
 
     $args['message'] = golf_simulator_theme_render_email_template('Tee Time Nexus', $subject, $body_html);

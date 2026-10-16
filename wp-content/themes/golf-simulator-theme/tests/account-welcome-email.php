@@ -88,6 +88,7 @@ function sanitize_key($value) { return strtolower(preg_replace('/[^a-zA-Z0-9_-]/
 function add_query_arg($key, $value, $url) { return $url . '?' . http_build_query(array($key => $value)); }
 function get_current_screen() { return (object) array('id' => $GLOBALS['screen_id'] ?? 'users'); }
 function get_theme_mod($key) { return $GLOBALS['theme_mods'][$key] ?? false; }
+function get_option($key) { return $key === 'blogname' ? 'Tee Time Nexus' : false; }
 function wp_get_attachment_image_url($id, $size) { return 'https://example.test/logo.png'; }
 function esc_html($value) { return htmlspecialchars($value, ENT_QUOTES, 'UTF-8'); }
 function esc_attr($value) { return esc_html($value); }
@@ -152,6 +153,18 @@ function check_welcome($condition, $message) {
 }
 
 require dirname(__DIR__) . '/inc/email-template.php';
+check_welcome(
+    golf_simulator_theme_brand_plain_emails(array('subject' => '[Tee Time Nexus] Password Changed', 'message' => 'Your password was changed.'))['subject'] === 'Password Changed',
+    'Remove the bracketed site name from plain-text notification subjects.'
+);
+check_welcome(
+    golf_simulator_theme_brand_plain_emails(array('subject' => '[Tee Time Nexus] Password Changed', 'message' => '<html>Existing HTML</html>'))['subject'] === 'Password Changed',
+    'Remove the bracketed site name from existing HTML email subjects.'
+);
+check_welcome(
+    golf_simulator_theme_brand_plain_emails(array('subject' => 'Booking Confirmed', 'message' => 'Your booking is confirmed.'))['subject'] === 'Booking Confirmed',
+    'Leave subjects without the bracketed site name unchanged.'
+);
 require dirname(__DIR__) . '/inc/auth.php';
 require dirname(__DIR__, 3) . '/plugins/tee-time-nexus-bookings/inc/class-ttn-jwt-auth.php';
 
