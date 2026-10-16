@@ -174,6 +174,9 @@ function golf_simulator_theme_mobile_membership_bridge() {
             wp_die('Your membership changed. Please start the upgrade again.', '', array('response' => 409));
         }
     }
+    if (function_exists('golf_simulator_theme_mark_app_checkout')) {
+        golf_simulator_theme_mark_app_checkout();
+    }
     wp_set_current_user($user_id);
     wp_set_auth_cookie($user_id, true);
 
@@ -203,7 +206,10 @@ function golf_simulator_theme_mobile_membership_bridge() {
     } else {
         wp_die('Membership checkout is unavailable. Please try again.', '', array('response' => 503));
     }
-    wp_safe_redirect(wc_get_checkout_url());
+    $checkout_url = function_exists('golf_simulator_theme_app_checkout_url')
+        ? golf_simulator_theme_app_checkout_url(wc_get_checkout_url())
+        : add_query_arg('ttn_app_checkout', '1', wc_get_checkout_url());
+    wp_safe_redirect($checkout_url);
     exit;
 }
 add_action('init', 'golf_simulator_theme_mobile_membership_bridge');

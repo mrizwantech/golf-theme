@@ -619,8 +619,64 @@ function golf_simulator_theme_get_color_theme() {
     return golf_simulator_theme_sanitize_color_theme(get_theme_mod('golf_simulator_color_theme', 'dark-green'));
 }
 
+function golf_simulator_theme_mark_app_checkout() {
+    $options = array(
+        'expires' => time() + HOUR_IN_SECONDS,
+        'path' => defined('COOKIEPATH') && COOKIEPATH ? COOKIEPATH : '/',
+        'secure' => is_ssl(),
+        'httponly' => true,
+        'samesite' => 'Lax',
+    );
+    if (defined('COOKIE_DOMAIN') && COOKIE_DOMAIN) {
+        $options['domain'] = COOKIE_DOMAIN;
+    }
+
+    setcookie('ttn_app_checkout', '1', $options);
+    $_COOKIE['ttn_app_checkout'] = '1';
+}
+
+function golf_simulator_theme_app_checkout_url($url) {
+    return add_query_arg('ttn_app_checkout', '1', $url);
+}
+
+function golf_simulator_theme_clear_app_checkout_marker() {
+    $options = array(
+        'expires' => time() - HOUR_IN_SECONDS,
+        'path' => defined('COOKIEPATH') && COOKIEPATH ? COOKIEPATH : '/',
+        'secure' => is_ssl(),
+        'httponly' => true,
+        'samesite' => 'Lax',
+    );
+    if (defined('COOKIE_DOMAIN') && COOKIE_DOMAIN) {
+        $options['domain'] = COOKIE_DOMAIN;
+    }
+
+    setcookie('ttn_app_checkout', '', $options);
+    unset($_COOKIE['ttn_app_checkout']);
+}
+
+function golf_simulator_theme_manage_app_checkout_marker() {
+    if (empty($_COOKIE['ttn_app_checkout'])) {
+        return;
+    }
+
+    if (function_exists('is_checkout') && is_checkout()
+        && (!function_exists('is_order_received_page') || !is_order_received_page())) {
+        return;
+    }
+
+    golf_simulator_theme_clear_app_checkout_marker();
+}
+add_action('template_redirect', 'golf_simulator_theme_manage_app_checkout_marker', 1);
+
 function golf_simulator_theme_body_class($classes) {
     $classes[] = 'theme-' . golf_simulator_theme_get_color_theme();
+    $is_app_checkout = isset($_GET['ttn_app_checkout'])
+        && '1' === sanitize_text_field(wp_unslash($_GET['ttn_app_checkout']));
+    if (($is_app_checkout || !empty($_COOKIE['ttn_app_checkout'])) && function_exists('is_checkout')
+        && is_checkout() && (!function_exists('is_order_received_page') || !is_order_received_page())) {
+        $classes[] = 'ttn-app-checkout';
+    }
     return $classes;
 }
 add_filter('body_class', 'golf_simulator_theme_body_class');
