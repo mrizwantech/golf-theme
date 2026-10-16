@@ -4685,3 +4685,45 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 .wc-blocks-components-select__label {
     color: #1a1a1a !important;
 }
+
+/* On phones, show the line total once and let item details wrap within checkout. */
+@media (max-width: 700px) {
+    .wp-block-woocommerce-checkout .wc-block-components-order-summary-item {
+        display: grid;
+        grid-template-columns: 48px minmax(0, 1fr);
+        gap: 8px 16px;
+        min-width: 0;
+    }
+
+    .wp-block-woocommerce-checkout .wc-block-components-order-summary-item__image {
+        grid-row: 1 / span 2;
+    }
+
+    .wp-block-woocommerce-checkout .wc-block-components-order-summary-item__description {
+        min-width: 0;
+        padding: 0;
+        overflow-wrap: anywhere;
+    }
+
+    .wp-block-woocommerce-checkout .wc-block-components-order-summary-item__description .wc-block-cart-item__prices {
+        display: none;
+    }
+
+    .wp-block-woocommerce-checkout .wc-block-components-order-summary-item__total-price {
+        grid-column: 2;
+        min-width: 0;
+        padding: 0;
+        text-align: left;
+    }
+
+    .wp-block-woocommerce-checkout .wc-block-cart-item__total-price-and-sale-badge-wrapper {
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .wp-block-woocommerce-checkout .wc-block-components-order-summary-item .price {
+        font-size: 1rem;
+        line-height: 1.5;
+    }
+}
