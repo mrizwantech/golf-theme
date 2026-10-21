@@ -2907,7 +2907,7 @@ function ttn_booking_shortcode() {
                 <div style="margin-bottom: 8px;">
                     <label style="display: flex; align-items: flex-start; gap: 10px; font-size: 0.9rem; cursor: pointer;">
                         <input type="checkbox" name="ttn_terms_accepted" id="ttn-terms-accepted" value="1" <?php echo $skip_verification ? '' : 'required'; ?> style="margin-top: 3px;">
-                        <span>I have read and agree to the <a href="#" id="ttn-terms-open" style="color: var(--primary); text-decoration: underline; font-weight: 700;">Terms and Conditions</a>.</span>
+                        <span>I have read and agree to the <a href="#" id="ttn-terms-open" style="color: #2563eb; text-decoration: underline; font-weight: 700;">Terms and Conditions</a> and <a href="<?php echo esc_url(home_url('/refund_cancellation/')); ?>" target="_blank" rel="noopener noreferrer" style="color: #2563eb; text-decoration: underline; font-weight: 700;">Cancellation and Refund Policy</a>, and acknowledge the <a href="<?php echo esc_url(function_exists('get_privacy_policy_url') && get_privacy_policy_url() ? get_privacy_policy_url() : home_url('/privacy-policy/')); ?>" target="_blank" rel="noopener noreferrer" style="color: #2563eb; text-decoration: underline; font-weight: 700;">Privacy Policy</a>.</span>
                     </label>
                 </div>
             </div>
