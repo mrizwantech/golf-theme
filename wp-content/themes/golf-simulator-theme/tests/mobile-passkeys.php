@@ -8,9 +8,11 @@ $meta = array();
 $hooks = array();
 $routes = array();
 $issued = 0;
+$issued_auth_methods = array();
 function add_action($name, $callback, $priority = 10) { $GLOBALS['hooks'][$name][] = $callback; }
 function add_filter($name, $callback, $priority = 10, $args = 1) { $GLOBALS['hooks'][$name][] = $callback; }
 function register_rest_route($namespace, $path, $options) { $GLOBALS['routes'][$path] = $options; }
+function absint($value) { return abs((int) $value); }
 function get_option($name) { return $name === 'ttn_passkey_schema' ? '1' : false; }
 function get_user_meta($id, $name, $single = true) { return $GLOBALS['meta'][$id][$name] ?? ''; }
 function add_user_meta($id, $name, $value, $unique) {
@@ -20,8 +22,9 @@ function add_user_meta($id, $name, $value, $unique) {
 function sanitize_text_field($value) { return strip_tags(trim($value)); }
 function is_wp_error($value) { return $value instanceof WP_Error; }
 function get_user_by($field, $id) { return in_array((int) $id, array(13, 14), true) ? new WP_User((int) $id) : false; }
-function ttn_jwt_issue_tokens($user) {
+function ttn_jwt_issue_tokens($user, $auth_method = 'password', $authenticated_at = null) {
     $GLOBALS['issued']++;
+    $GLOBALS['issued_auth_methods'][] = $auth_method;
     return array('access_token' => 'test-access', 'refresh_token' => 'test-refresh', 'expires_in' => 900, 'token_type' => 'Bearer');
 }
 function ttn_jwt_is_rate_limited($key) { return ($GLOBALS['rate'][$key] ?? 0) >= 5; }
@@ -203,6 +206,7 @@ $credential = assertion($synced, $login_options);
 $params = array('challenge_id' => $login_options['challenge_id'], 'credential' => $credential);
 $result = dispatch('login', $params);
 expect(!is_wp_error($result) && $result['user']['id'] === 13 && $result['token_type'] === 'Bearer', 'Verified login issues existing session tokens');
+expect(end($issued_auth_methods) === 'passkey', 'Verified passkey login marks the session as recently passkey-authenticated.');
 rejected(dispatch('login', $params), 'Challenge replay');
 expect(!is_wp_error(verify_login($synced, 10)) && !is_wp_error(verify_login($synced, 1)) &&
     !is_wp_error(verify_login($synced, 0)), 'Synced counter regression/zero allowed with valid signatures');
@@ -305,4 +309,23 @@ rejected(dispatch('login', array('challenge_id' => $options['challenge_id'], 'cr
     array('origin' => 'android:apk-key-hash:' . ttn_passkey_encode(random_bytes(32)))))), 'Unapproved Android signer');
 while (count(ttn_passkey_records(13)) < 10) { expect(!is_wp_error(enroll(fixture())), 'Fill allowed passkeys'); }
 rejected(dispatch('register-options', array('platform' => 'ios', 'ttn_auth_user' => new WP_User())), 'Credential limit', 409);
-echo "Mobile passkeys: cryptographic enrollment/login, replay/expiry/binding, origin/RP/UV/signature, counters, ownership/revocation, limits and associations passed.\n";
+$wpdb->insert('wp_ttn_passkeys', array(
+    'id_hash' => str_repeat('f', 64), 'credential_id' => 'credential', 'user_id' => 14, 'slot' => 0,
+    'user_handle' => 'handle', 'public_key' => 'key', 'sign_count' => 0, 'backup_eligible' => 0,
+    'label' => 'Account deletion test', 'created_at' => time(), 'last_used_at' => 0,
+));
+$wpdb->insert('wp_ttn_passkey_challenges', array(
+    'id_hash' => str_repeat('e', 64), 'challenge' => 'challenge', 'purpose' => 'register',
+    'platform' => 'ios', 'user_id' => 14, 'user_handle' => 'handle', 'expires_at' => time() + 60,
+));
+$wpdb->insert('wp_ttn_passkey_challenges', array(
+    'id_hash' => str_repeat('d', 64), 'challenge' => 'other-user-challenge', 'purpose' => 'register',
+    'platform' => 'ios', 'user_id' => 13, 'user_handle' => 'other-user-handle', 'expires_at' => time() + 60,
+));
+expect(ttn_passkey_delete_user_data(14) === true, 'Account deletion removes saved passkeys and challenges.');
+expect(count(ttn_passkey_records(14)) === 0 && count(ttn_passkey_records(13)) === 10, 'Passkey cleanup is limited to the deleted user.');
+$challenges = $wpdb->get_results($wpdb->prepare('SELECT * FROM wp_ttn_passkey_challenges WHERE user_id = %d', 14), ARRAY_A);
+expect(count($challenges) === 0, 'Account deletion removes that user\'s pending passkey challenges.');
+expect(count($wpdb->get_results($wpdb->prepare('SELECT * FROM wp_ttn_passkey_challenges WHERE user_id = %d', 13), ARRAY_A)) > 0,
+    'Passkey cleanup preserves other users\' pending challenges.');
+echo "Mobile passkeys: cryptographic enrollment/login, replay/expiry/binding, origin/RP/UV/signature, counters, ownership/revocation, limits, associations, and account deletion passed.\n";

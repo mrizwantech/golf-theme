@@ -38,7 +38,18 @@ check_value(ttn_mobile_prefill_checkout_contact('Entered name', 'billing_first_n
 $meta['billing_first_name'] = 'Billing name';
 check_value(ttn_mobile_prefill_checkout_contact(null, 'billing_first_name'), 'Billing name', 'Saved billing names should take precedence.');
 $meta['last_name'] = '';
+unset($meta['billing_first_name']);
+$meta['first_name'] = 'Muhammad';
 check_value(ttn_mobile_prefill_checkout_contact(null, 'billing_last_name'), null, 'Missing names must remain blank for checkout entry.');
+$meta['first_name'] = 'Muhammad Rizwan';
+check_value(ttn_mobile_prefill_checkout_contact(null, 'billing_first_name'), 'Muhammad', 'Full names saved as first name should be split.');
+check_value(ttn_mobile_prefill_checkout_contact(null, 'billing_last_name'), 'Rizwan', 'Full names saved as first name should fill last name.');
+$meta['first_name'] = '  Mary  Ann   Smith ';
+check_value(ttn_mobile_prefill_checkout_contact(null, 'billing_first_name'), 'Mary Ann', 'Middle names stay with the first name.');
+check_value(ttn_mobile_prefill_checkout_contact(null, 'billing_last_name'), 'Smith', 'The final word becomes the last name.');
+$meta['billing_first_name'] = 'Jane Doe';
+$meta['billing_last_name'] = 'Roe';
+check_value(ttn_mobile_prefill_checkout_contact(null, 'billing_first_name'), 'Jane Doe', 'Names with a saved last name are not split.');
 check_value(ttn_mobile_prefill_checkout_contact(null, 'billing_address_1'), null, 'Unrelated fields must remain unchanged.');
 $current_user_id = 0;
 check_value(ttn_mobile_prefill_checkout_contact(null, 'billing_first_name'), null, 'Guest checkout must remain unchanged.');

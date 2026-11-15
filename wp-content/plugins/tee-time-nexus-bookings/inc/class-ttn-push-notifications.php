@@ -454,6 +454,22 @@ function ttn_push_rest_unregister_device(WP_REST_Request $request) {
     return is_wp_error($result) ? $result : rest_ensure_response(array('unregistered' => true));
 }
 
+function ttn_push_delete_user_data($user_id) {
+    if (!ttn_push_is_configured()) {
+        return new WP_Error('ttn_push_unavailable', 'Account deletion is temporarily unavailable. Please try again later.', array('status' => 503));
+    }
+
+    $result = ttn_push_send_now('account.delete', 'account.delete', array('user_id' => absint($user_id)));
+    if (is_wp_error($result)) {
+        return $result;
+    }
+    if (($result['deleted'] ?? false) !== true) {
+        return new WP_Error('ttn_push_delete_failed', 'Account deletion is temporarily unavailable. Please try again later.', array('status' => 503));
+    }
+
+    return true;
+}
+
 function ttn_push_preferences_response($result) {
     if (is_wp_error($result)) {
         return $result;

@@ -213,12 +213,15 @@ function golf_simulator_theme_process_register($redirect_to) {
         return __('An account with that email already exists. Please log in instead.', 'golf-simulator-theme');
     }
 
+    $name_parts = preg_split('/\s+/u', trim($name));
+    $last_name = count($name_parts) > 1 ? array_pop($name_parts) : '';
     $user_id = wp_insert_user(array(
         'user_login' => golf_simulator_theme_generate_unique_username($email),
         'user_email' => $email,
         'user_pass' => $password,
         'display_name' => $name,
-        'first_name' => $name,
+        'first_name' => implode(' ', $name_parts),
+        'last_name' => $last_name,
         'role' => 'subscriber',
     ));
 

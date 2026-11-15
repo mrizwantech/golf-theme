@@ -23,6 +23,20 @@ function ttn_mobile_get_checkout_contact_defaults($user_id) {
     );
 }
 
+if (!function_exists('ttn_split_full_name')) {
+    /**
+     * Splits "First Middle Last" into array('First Middle', 'Last'); single words have no last name.
+     */
+    function ttn_split_full_name($name) {
+        $name = trim(preg_replace('/\s+/u', ' ', (string) $name));
+        $position = strrpos($name, ' ');
+        if ($position === false) {
+            return array($name, '');
+        }
+        return array(substr($name, 0, $position), substr($name, $position + 1));
+    }
+}
+
 function ttn_mobile_prefill_checkout_contact($value, $input) {
     if ($value !== null && $value !== '') {
         return $value;
@@ -35,8 +49,22 @@ function ttn_mobile_prefill_checkout_contact($value, $input) {
     if (!isset($defaults[$input])) {
         return $value;
     }
-    $saved = (string) get_user_meta($user_id, $input, true);
-    return $saved !== '' ? $saved : ($defaults[$input] !== '' ? $defaults[$input] : $value);
+    $resolve = function ($key) use ($user_id, $defaults) {
+        $saved = (string) get_user_meta($user_id, $key, true);
+        return $saved !== '' ? $saved : $defaults[$key];
+    };
+    if ($input === 'billing_first_name' || $input === 'billing_last_name') {
+        $first = $resolve('billing_first_name');
+        $last = $resolve('billing_last_name');
+        // Older signups stored the full name in first_name with no last name.
+        if ($last === '') {
+            list($first, $last) = ttn_split_full_name($first);
+        }
+        $resolved = $input === 'billing_first_name' ? $first : $last;
+        return $resolved !== '' ? $resolved : $value;
+    }
+    $resolved = $resolve($input);
+    return $resolved !== '' ? $resolved : $value;
 }
 add_filter('woocommerce_checkout_get_value', 'ttn_mobile_prefill_checkout_contact', 10, 2);
 
