@@ -207,6 +207,26 @@ function ttn_passkey_records($user_id) {
     return $rows;
 }
 
+function ttn_passkey_delete_user_data($user_id) {
+    global $wpdb;
+    try {
+        ttn_passkey_install();
+    } catch (RuntimeException $error) {
+        error_log('TTN account deletion could not initialize passkey storage: ' . $error->getMessage());
+        return new WP_Error('ttn_passkey_delete_failed', 'Account deletion is temporarily unavailable. Please try again later.', array('status' => 503));
+    }
+
+    list($keys, $challenges) = ttn_passkey_tables();
+    $deleted_keys = $wpdb->delete($keys, array('user_id' => absint($user_id)));
+    $deleted_challenges = $wpdb->delete($challenges, array('user_id' => absint($user_id)));
+    if ($deleted_keys === false || $deleted_challenges === false) {
+        error_log('TTN account deletion could not remove passkey records for user ' . absint($user_id));
+        return new WP_Error('ttn_passkey_delete_failed', 'Account deletion is temporarily unavailable. Please try again later.', array('status' => 503));
+    }
+
+    return true;
+}
+
 function ttn_passkey_options($request, $purpose) {
     $platform = $request->get_param('platform');
     $verifier = ttn_passkey_verifier($platform);
@@ -357,7 +377,7 @@ function ttn_passkey_login($request) {
             throw new InvalidArgumentException('The passkey changed or was removed. Please try again.');
         }
     }
-    $tokens = ttn_jwt_issue_tokens($user);
+    $tokens = ttn_jwt_issue_tokens($user, 'passkey');
     if (is_wp_error($tokens)) {
         return $tokens;
     }

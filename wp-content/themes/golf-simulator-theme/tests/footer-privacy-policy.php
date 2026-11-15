@@ -154,6 +154,7 @@ check_test(strpos($page_html, 'Bluetooth and nearby devices') !== false, 'Page m
 check_test(strpos($page_html, 'Kisi') !== false, 'Page must detail Kisi smart lock access integration.');
 check_test(strpos($page_html, 'sales@teetimenexus.com') !== false, 'Page must list sales contact email.');
 check_test(strpos($page_html, '+1 (980) 503-3288') !== false, 'Page must list contact phone number.');
+check_test(strpos($page_html, 'Profile &gt; Delete Account') !== false, 'Privacy policy must direct signed-in app users to in-app account deletion.');
 
 // 4. Test SEO functions in functions.php
 require dirname(__DIR__) . '/functions.php';

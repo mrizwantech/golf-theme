@@ -161,6 +161,7 @@ function ttn_jwt_authenticate_request(WP_REST_Request $request) {
 
     wp_set_current_user($user->ID);
     $request->set_param('ttn_auth_user', $user);
+    $request->set_param('ttn_auth_claims', $claims);
 
     return true;
 }
@@ -298,13 +299,17 @@ function ttn_apple_verify_identity_token($identity_token, $nonce) {
 /**
  * Issues a fresh access + refresh token pair for the given user and stores the refresh token hash.
  */
-function ttn_jwt_issue_tokens(WP_User $user) {
+function ttn_jwt_issue_tokens(WP_User $user, $auth_method = 'password', $authenticated_at = null) {
     $now = time();
+    $authenticated_at = null === $authenticated_at ? $now : (int) $authenticated_at;
+    $auth_method = in_array($auth_method, array('password', 'apple', 'passkey'), true) ? $auth_method : '';
 
     $access_token = ttn_jwt_encode(array(
         'sub' => $user->ID,
         'type' => 'access',
         'iat' => $now,
+        'auth_method' => $auth_method,
+        'auth_at' => $authenticated_at,
         'exp' => $now + TTN_JWT_ACCESS_TTL,
     ));
     if (is_wp_error($access_token)) {
@@ -322,7 +327,12 @@ function ttn_jwt_issue_tokens(WP_User $user) {
         return isset($entry['exp']) && $entry['exp'] > $now;
     });
 
-    $stored[] = array('hash' => $refresh_hash, 'exp' => $now + TTN_JWT_REFRESH_TTL);
+    $stored[] = array(
+        'hash' => $refresh_hash,
+        'exp' => $now + TTN_JWT_REFRESH_TTL,
+        'auth_method' => $auth_method,
+        'auth_at' => $authenticated_at,
+    );
     update_user_meta($user->ID, 'ttn_refresh_tokens', array_values($stored));
 
     return array(
@@ -380,13 +390,14 @@ function ttn_jwt_route_apple_login(WP_REST_Request $request) {
             }
 
             $name = sanitize_text_field($request->get_param('name'));
+            list($name_first, $name_last) = ttn_split_full_name($name);
             $user_id = wp_insert_user(array(
                 'user_login' => $username,
                 'user_email' => $email,
                 'user_pass' => wp_generate_password(32, true, true),
                 'display_name' => $name ?: $username,
-                'first_name' => sanitize_text_field((string) $request->get_param('given_name')) ?: $name,
-                'last_name' => sanitize_text_field((string) $request->get_param('family_name')),
+                'first_name' => sanitize_text_field((string) $request->get_param('given_name')) ?: $name_first,
+                'last_name' => sanitize_text_field((string) $request->get_param('family_name')) ?: $name_last,
                 'role' => 'subscriber',
             ));
 
@@ -417,13 +428,46 @@ function ttn_jwt_route_apple_login(WP_REST_Request $request) {
     }
     ttn_jwt_clear_failed_attempts($rate_limit_identifier);
 
-    $tokens = ttn_jwt_issue_tokens($user);
+    $tokens = ttn_jwt_issue_tokens($user, 'apple');
     if (is_wp_error($tokens)) {
         return $tokens;
     }
 
     return rest_ensure_response(array_merge($tokens, array(
         'is_new_user' => $created_user,
+        'user' => array(
+            'id' => $user->ID,
+            'email' => $user->user_email,
+            'display_name' => $user->display_name,
+        ),
+    )));
+}
+
+function ttn_jwt_route_apple_reauthenticate(WP_REST_Request $request) {
+    $user = $request->get_param('ttn_auth_user');
+    $identity_token = trim((string) $request->get_param('identity_token'));
+    $nonce = sanitize_text_field((string) $request->get_param('nonce'));
+    if (!$user instanceof WP_User || !$identity_token || !$nonce) {
+        return new WP_Error('ttn_apple_bad_request', 'A signed-in account, identity token, and nonce are required.', array('status' => 400));
+    }
+
+    $claims = ttn_apple_verify_identity_token($identity_token, $nonce);
+    if (is_wp_error($claims)) {
+        return $claims;
+    }
+
+    $linked_subject = (string) get_user_meta($user->ID, 'ttn_apple_subject', true);
+    if ($linked_subject === '' || !hash_equals($linked_subject, sanitize_text_field($claims['sub']))) {
+        return new WP_Error('ttn_apple_reauthentication_failed', 'This Apple account is not linked to your signed-in account.', array('status' => 403));
+    }
+
+    $tokens = ttn_jwt_issue_tokens($user, 'apple');
+    if (is_wp_error($tokens)) {
+        return $tokens;
+    }
+
+    ttn_jwt_clear_failed_attempts('apple-signin');
+    return rest_ensure_response(array_merge($tokens, array(
         'user' => array(
             'id' => $user->ID,
             'email' => $user->user_email,
@@ -504,7 +548,8 @@ function ttn_jwt_route_register(WP_REST_Request $request) {
         'user_email' => $email,
         'user_pass' => $password,
         'display_name' => $name,
-        'first_name' => $name,
+        'first_name' => ttn_split_full_name($name)[0],
+        'last_name' => ttn_split_full_name($name)[1],
         'role' => 'subscriber',
     ));
 
@@ -568,6 +613,7 @@ function ttn_jwt_route_refresh(WP_REST_Request $request) {
         foreach ($stored as $entry) {
             if (isset($entry['hash'], $entry['exp']) && hash_equals($entry['hash'], $refresh_hash) && $entry['exp'] > $now) {
                 $matched_user = $candidate;
+                $matched_entry = $entry;
                 break 2;
             }
         }
@@ -585,7 +631,11 @@ function ttn_jwt_route_refresh(WP_REST_Request $request) {
     }));
     update_user_meta($matched_user->ID, 'ttn_refresh_tokens', $stored);
 
-    $tokens = ttn_jwt_issue_tokens($matched_user);
+    $tokens = ttn_jwt_issue_tokens(
+        $matched_user,
+        $matched_entry['auth_method'] ?? '',
+        $matched_entry['auth_at'] ?? 0
+    );
     if (is_wp_error($tokens)) {
         return $tokens;
     }
@@ -627,6 +677,16 @@ function ttn_jwt_route_logout(WP_REST_Request $request) {
 }
 
 add_action('rest_api_init', function () {
+    register_rest_route('ttn/v1', '/auth/apple/reauthenticate', array(
+        'methods' => 'POST',
+        'callback' => 'ttn_jwt_route_apple_reauthenticate',
+        'permission_callback' => 'ttn_jwt_authenticate_request',
+        'args' => array(
+            'identity_token' => array('required' => true, 'type' => 'string'),
+            'nonce' => array('required' => true, 'type' => 'string'),
+        ),
+    ));
+
     register_rest_route('ttn/v1', '/auth/apple', array(
         'methods' => 'POST',
         'callback' => 'ttn_jwt_route_apple_login',

@@ -286,7 +286,8 @@ function ttn_booking_maybe_create_account($email, $name, $password, $confirm_pas
         'user_email' => $email,
         'user_pass' => $password,
         'display_name' => $name,
-        'first_name' => $name,
+        'first_name' => ttn_split_full_name($name)[0],
+        'last_name' => ttn_split_full_name($name)[1],
         'role' => 'subscriber',
     ));
 

@@ -386,6 +386,8 @@ try {
         'password' => 'StrongPass1!',
     )));
     check_welcome($result instanceof WP_REST_Response && $result->data['welcome_email_sent'] === true, 'Mobile signup must report the creation-hook send result.');
+    $registration_claims = ttn_jwt_decode($result->data['access_token']);
+    check_welcome(!is_wp_error($registration_claims) && $registration_claims['auth_method'] === 'password', 'Password registration must issue a password-authenticated session.');
     check_welcome(count($mail_calls) === $before_mobile_signup + 1, 'Mobile signup must not send a duplicate welcome email.');
     $mobile_user_id = $result->data['user']['id'];
     update_user_meta($mobile_user_id, 'ttn_apple_subject', 'linked-apple-subject');
@@ -420,9 +422,21 @@ try {
         'family_name' => '',
     )));
     check_welcome(!is_wp_error($apple_login) && $apple_login['user']['id'] === $mobile_user_id, 'Apple login must still resolve the linked account after contact email replacement.');
+    $apple_claims = ttn_jwt_decode($apple_login['access_token']);
+    check_welcome(!is_wp_error($apple_claims) && $apple_claims['auth_method'] === 'apple' && $apple_claims['auth_at'] >= time() - 5, 'Apple login must issue a recent Apple-authenticated session.');
     check_welcome($apple_login['user']['email'] === 'mobile@example.test', 'Subsequent Apple login must not overwrite the verified contact email with the relay address.');
     check_welcome(get_user_meta($mobile_user_id, '_ttn_contact_email_required', true) === '1', 'Signed Apple private-email claim must record the contact-email requirement.');
     check_welcome(count($mail_calls) === $before_mobile_signup + 1, 'Returning Apple sign-in must not send a new welcome email.');
+    $apple_reauth = ttn_jwt_route_apple_reauthenticate(new WP_REST_Request(array(
+        'ttn_auth_user' => $users[$mobile_user_id],
+        'identity_token' => $header . '.' . $payload . '.' . ttn_jwt_base64url_encode($signature),
+        'nonce' => $nonce,
+    )));
+    $reauth_claims = ttn_jwt_decode($apple_reauth['access_token']);
+    check_welcome(!is_wp_error($apple_reauth) && !is_wp_error($reauth_claims)
+        && $apple_reauth['user']['id'] === $mobile_user_id
+        && $reauth_claims['auth_method'] === 'apple'
+        && $reauth_claims['auth_at'] >= time() - 5, 'Apple reauthentication must verify the linked Apple identity without changing account ownership.');
 } finally {
     ini_set('error_log', $original_error_log);
     unlink($log_file);
